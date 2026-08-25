@@ -96,11 +96,13 @@ Requiere Node.js 20+ y PostgreSQL 16+.
 | `npm run dev` | Servidor de desarrollo (Next.js) |
 | `npm run build` | Build de producción |
 | `npm run start` | Servidor de producción |
-| `npm test` | Tests unitarios y de integración |
-| `npm run test:e2e` | Tests end-to-end (Playwright) |
+| `npm run test` | Tests unitarios (Vitest) |
+| `npm run test:watch` | Tests unitarios en modo watch |
+| `npm run test:unit` | Tests unitarios |
+| `npm run test:coverage` | Tests unitarios con reporte de cobertura |
 | `npm run lint` | Linter + typecheck |
 
-> Los scripts se consolidan en FASE 1 (T-001..T-004). Esta tabla define el contrato esperado.
+> Los tests end-to-end quedan diferidos a fases posteriores. Los scripts se consolidan en FASE 1 (T-001..T-004). Esta tabla define el contrato esperado.
 
 ## Convenciones
 
