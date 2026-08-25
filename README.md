@@ -68,7 +68,7 @@ git clone https://github.com/luismercury/curso-01.git
 cd curso-01
 
 # 2. Dependencias
-npm install
+pnpm install
 
 # 3. Variables de entorno
 cp .env.example .env
@@ -76,8 +76,9 @@ cp .env.example .env
 # DATABASE_URL=postgresql://postgres:postgres@localhost:5432/autoservice
 # AUTH_SECRET=<generar con: openssl rand -base64 32>
 
-# 4. Base de datos (local, opcional)
+# 4. Base de datos (local)
 docker compose up -d --wait   # postgres:16-alpine con healthcheck
+pnpm db:migrate               # aplica migraciones Drizzle (tabla clientes)
 # o usar un PostgreSQL 16+ propio apuntado por DATABASE_URL
 
 # 5. Desarrollo
@@ -100,6 +101,8 @@ Requiere Node.js 20+ y PostgreSQL 16+.
 | `npm run test:watch` | Tests unitarios en modo watch |
 | `npm run test:unit` | Tests unitarios |
 | `npm run test:coverage` | Tests unitarios con reporte de cobertura |
+| `pnpm db:generate` | Genera migraciones Drizzle desde el schema |
+| `pnpm db:migrate` | Aplica migraciones contra la base local |
 | `npm run lint` | Linter + typecheck |
 
 > Los tests end-to-end quedan diferidos a fases posteriores. Los scripts se consolidan en FASE 1 (T-001..T-004). Esta tabla define el contrato esperado.
