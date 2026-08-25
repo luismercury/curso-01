@@ -72,19 +72,19 @@ npm install
 
 # 3. Variables de entorno
 cp .env.example .env
-# Editar .env:
-# DATABASE_URL="postgresql://user:password@localhost:5432/autoservice?schema=public"
-# AUTH_SECRET="generar con: openssl rand -base64 32"
+# Editar .env (placeholders ya alineados con el ejemplo):
+# DATABASE_URL=postgresql://postgres:postgres@localhost:5432/autoservice
+# AUTH_SECRET=<generar con: openssl rand -base64 32>
 
-# 4. Base de datos
-npx prisma migrate dev
-# o: npx drizzle-kit push
+# 4. Base de datos (local, opcional)
+docker compose up -d --wait   # postgres:16-alpine con healthcheck
+# o usar un PostgreSQL 16+ propio apuntado por DATABASE_URL
 
 # 5. Desarrollo
-npm run dev      # http://localhost:3000
+pnpm dev          # http://localhost:3000
 
 # 6. Tests
-npm test
+pnpm test
 ```
 
 Requiere Node.js 20+ y PostgreSQL 16+.
