@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   pgTable,
@@ -73,3 +74,30 @@ export const vehiculos = pgTable(
 
 export type VehiculoRow = typeof vehiculos.$inferSelect;
 export type VehiculoInsert = typeof vehiculos.$inferInsert;
+
+/**
+ * Servicio (T-007) — third persisted domain entity.
+ *
+ * INV-05: duracionMinutos consumed by slot generation (INV-05).
+ * INV-06: timestamps are TIMESTAMPTZ (UTC in storage).
+ * INV-08: DB columns snake_case (nombre/descripcion/duracion_minutos/activo
+ * stay Spanish); DTO mapping to English camelCase happens in
+ * src/db/mappers/servicio.ts. No DB CHECKs — deferred to T-009.
+ */
+export const servicios = pgTable("servicios", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  nombre: varchar("nombre", { length: 100 }).notNull().unique(),
+  descripcion: varchar("descripcion", { length: 500 }),
+  duracionMinutos: integer("duracion_minutos").notNull(),
+  activo: boolean("activo").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type ServicioRow = typeof servicios.$inferSelect;
+export type ServicioInsert = typeof servicios.$inferInsert;
