@@ -8,6 +8,13 @@
       "when": 1787637844005,
       "tag": "0000_massive_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787712540064,
+      "tag": "0001_magenta_thor",
+      "breakpoints": true
     }
   ]
 }

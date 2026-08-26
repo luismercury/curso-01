@@ -6,7 +6,7 @@ import type { ClienteDTO } from "@/db/mappers/cliente";
 import { toClienteDTO } from "@/db/mappers/cliente";
 import type { ClienteInput } from "@/db/validators/cliente";
 import { clienteInputSchema } from "@/db/validators/cliente";
-import { DomainError } from "@/lib/errors";
+import { DomainError, hasPgCode } from "@/lib/errors";
 
 export class ClienteEmailTakenError extends DomainError {
   readonly email: string;
@@ -19,16 +19,7 @@ export class ClienteEmailTakenError extends DomainError {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  // drizzle-orm wraps driver errors in DrizzleQueryError, keeping the
-  // original pg error on `cause` — check both levels for code 23505.
-  let current: unknown = error;
-  while (typeof current === "object" && current !== null) {
-    if ((current as { code?: unknown }).code === "23505") {
-      return true;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
+  return hasPgCode(error, "23505");
 }
 
 /**
