@@ -22,6 +22,13 @@
       "when": 1787762262516,
       "tag": "0002_tense_jane_foster",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787767771677,
+      "tag": "0003_milky_major_mapleleaf",
+      "breakpoints": true
     }
   ]
 }

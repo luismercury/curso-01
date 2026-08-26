@@ -101,3 +101,51 @@ export const servicios = pgTable("servicios", {
 
 export type ServicioRow = typeof servicios.$inferSelect;
 export type ServicioInsert = typeof servicios.$inferInsert;
+
+/**
+ * Turno (T-008) — fourth persisted domain entity.
+ *
+ * INV-05: fechaHoraFin snapshot = fechaHoraInicio + servicio.durationMinutes.
+ * INV-06: timestamps are TIMESTAMPTZ (UTC in storage).
+ * INV-08: DB columns snake_case (cliente_id/vehiculo_id/servicio_id/
+ * fecha_hora_inicio/fecha_hora_fin/estado); DTO mapping to English camelCase
+ * happens in src/db/mappers/turno.ts. No DB CHECKs — deferred to T-009.
+ *
+ * FKs RESTRICT (not CASCADE/SET NULL) preserve audit trail; indexes on FKs +
+ * fecha_hora_inicio back filtering and joins.
+ */
+export const turnos = pgTable(
+  "turnos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clienteId: uuid("cliente_id")
+      .notNull()
+      .references(() => clientes.id, { onDelete: "restrict" }),
+    vehiculoId: uuid("vehiculo_id")
+      .notNull()
+      .references(() => vehiculos.id, { onDelete: "restrict" }),
+    servicioId: uuid("servicio_id")
+      .notNull()
+      .references(() => servicios.id, { onDelete: "restrict" }),
+    fechaHoraInicio: timestamp("fecha_hora_inicio", { withTimezone: true })
+      .notNull(),
+    fechaHoraFin: timestamp("fecha_hora_fin", { withTimezone: true }).notNull(),
+    estado: varchar("estado", { length: 20 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("idx_turno_cliente_id").on(table.clienteId),
+    index("idx_turno_vehiculo_id").on(table.vehiculoId),
+    index("idx_turno_servicio_id").on(table.servicioId),
+    index("idx_turno_fecha_hora_inicio").on(table.fechaHoraInicio),
+  ],
+);
+
+export type TurnoRow = typeof turnos.$inferSelect;
+export type TurnoInsert = typeof turnos.$inferInsert;
