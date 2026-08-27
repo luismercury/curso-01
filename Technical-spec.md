@@ -254,6 +254,9 @@ Notas:
 - DB usa `snake_case`; los mappers (`toDTO` / `fromDTO`) son obligatorios y se testean.
 - Ver `implementation-plan.md T-009b`.
 
+> **T-010 joint initial (FASE 2 closure):** `drizzle/0000-0003` jointly constitute the initial migration per `T-010` — all 4 entities (`clientes`, `vehiculos`, `servicios`, `turnos`), FKs `onDelete RESTRICT` and indexes (`idx_vehiculo_cliente_id`, `idx_turno_*`) declared there. `drizzle/0004_graceful_james_howlett.sql` is linear hardening (`CREATE EXTENSION btree_gist`, 6 CHECKs, `EXCLUDE USING gist ... WHERE estado IN ('PENDIENTE','CONFIRMADO')`); `drizzle/meta/_journal.json` remains linear `idx 0..4`. No squash — documented as joint initial for `T-010` fulfillment.
+> **Read boundary (T-009b / INV-08):** mappers are `toDTO`-only — `src/db/mappers/*.ts` expose `toDTO(row)` → English `camelCase` DTO tested in `src/db/__tests__/mappers.*.test.ts`. Write path stays `Create*Input` (English `camelCase`) → Spanish DB remap + Zod validation; no `fromDTO` (read vs write models intentionally separate).
+
 ### 6.1 Cliente
 
 Representa a una persona que solicita servicios al taller.

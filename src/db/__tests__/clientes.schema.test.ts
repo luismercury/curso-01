@@ -5,8 +5,6 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 
 // Production modules under test.
 import { clientes } from "@/db/schema";
-import type { ClienteRow } from "@/db/schema";
-import { toClienteDTO } from "@/db/mappers/cliente";
 import { clienteInputSchema } from "@/db/validators/cliente";
 
 // src/db/index.ts imports "server-only", which throws outside the
@@ -83,45 +81,6 @@ describe("clientes table shape (REQ-CLIENTE-04)", () => {
     const createdAt = columnsByName().get("created_at");
     expect(typeof (updatedAt as { onUpdateFn?: unknown }).onUpdateFn).toBe("function");
     expect((createdAt as { onUpdateFn?: unknown }).onUpdateFn).toBeUndefined();
-  });
-});
-
-describe("toClienteDTO mapper (REQ-CLIENTE-06)", () => {
-  const row = (): ClienteRow => ({
-    id: "0f0a1b2c-3d4e-5f60-8a9b-c0d1e2f3a4b5",
-    nombre: "Ana",
-    apellido: "García",
-    telefono: "+54 11 1234-5678",
-    email: "ana@example.test",
-    createdAt: new Date("2026-08-25T13:00:00.000Z"),
-    updatedAt: new Date("2026-08-25T14:30:00.000Z"),
-  });
-
-  it("maps snake_case timestamps to camelCase DTO keys", () => {
-    const dto = toClienteDTO(row());
-    expect(dto).toEqual({
-      id: row().id,
-      nombre: "Ana",
-      apellido: "García",
-      telefono: "+54 11 1234-5678",
-      email: "ana@example.test",
-      createdAt: new Date("2026-08-25T13:00:00.000Z"),
-      updatedAt: new Date("2026-08-25T14:30:00.000Z"),
-    });
-    expect(dto).not.toHaveProperty("created_at");
-    expect(dto).not.toHaveProperty("updated_at");
-  });
-
-  it("preserves Date instances and Spanish domain names for a different row (triangulation)", () => {
-    const source = row();
-    source.nombre = "Bruno";
-    source.apellido = "Díaz";
-    const dto = toClienteDTO(source);
-    expect(dto.createdAt).toBeInstanceOf(Date);
-    expect(dto.updatedAt).toBeInstanceOf(Date);
-    expect(dto.createdAt).toBe(source.createdAt); // same reference, not a copy
-    expect(dto.nombre).toBe("Bruno");
-    expect(dto.apellido).toBe("Díaz");
   });
 });
 
