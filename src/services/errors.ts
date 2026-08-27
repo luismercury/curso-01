@@ -70,6 +70,24 @@ export class VehicleCustomerNotFoundError extends DomainError {
 }
 
 /**
+ * Thrown when a service lookup by id finds no row.
+ * Maps to HTTP 404 SERVICE_NOT_FOUND.
+ */
+export class ServiceNotFoundError extends DomainError {
+  readonly code = "SERVICE_NOT_FOUND" as const;
+  readonly serviceId: string;
+
+  constructor(serviceId: string, options?: { cause?: unknown }) {
+    super(`No service exists with id "${serviceId}"`);
+    this.name = "ServiceNotFoundError";
+    this.serviceId = serviceId;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
  * Alias for backward compatibility with Spanish repository naming.
  * Prefer VehicleCustomerNotFoundError in service layer.
  */
