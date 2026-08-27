@@ -324,23 +324,27 @@ describe("turnos repository (integration)", () => {
     expect((outcome as { name?: string }).name).toBe("ZodError");
   });
 
-  d("migration is sequential idx 3 without btree_gist/EXCLUDE/CHECK (R6,R7)", async () => {
+  d("migration is sequential idx 4 with btree_gist/EXCLUDE/CHECK (R6,R7 t009)", async () => {
     const journal = JSON.parse(
       readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"),
     );
+    expect(journal.entries).toHaveLength(5);
     const entry = journal.entries.find(
-      (e: { idx: number }) => e.idx === 3,
+      (e: { idx: number }) => e.idx === 4,
     );
     expect(entry).toBeDefined();
+    expect(entry.tag).toMatch(/^0004_/);
     const sqlFiles = readdirSync("drizzle").filter((f) => f.endsWith(".sql"));
-    const fileForIdx3 = sqlFiles.find((f) => f.startsWith("0003_"));
-    expect(fileForIdx3).toBeDefined();
-    const sql = readFileSync(resolve("drizzle", fileForIdx3!), "utf8");
+    const fileForIdx4 = sqlFiles.find((f) => f.startsWith("0004_"));
+    expect(fileForIdx4).toBeDefined();
+    const sql = readFileSync(resolve("drizzle", fileForIdx4!), "utf8");
     expect(sql).toMatch(/turnos/);
-    expect(sql).not.toMatch(/btree_gist/i);
-    expect(sql).not.toMatch(/EXCLUDE.*gist/i);
-    expect(sql).not.toMatch(/CHECK.*estado/i);
-    expect(sql).not.toMatch(/CHECK.*fecha_hora/i);
+    expect(sql).toMatch(/btree_gist/i);
+    expect(sql).toMatch(/EXCLUDE.*gist/i);
+    expect(sql).toMatch(/CHECK.*estado/i);
+    expect(sql).toMatch(/CHECK.*fecha_hora/i);
+    expect(sql).toMatch(/no_overlap_per_capacity/);
+    expect(sql).toMatch(/tstzrange/);
   });
 
   if (!databaseUrl) {

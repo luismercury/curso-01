@@ -250,6 +250,28 @@ describe("servicios repository negative scope (REQ-SRV-03)", () => {
   });
 });
 
+describe("t009 DB CHECK hardening — servicios (RED)", () => {
+  it("exposes CHECK servicios_duracion_check via getTableConfig", () => {
+    const config = tableConfig() as unknown as { checks?: Array<{ name?: string }> };
+    const checks = config.checks ?? [];
+    const names = checks.map((c) => c.name);
+    expect(names).toContain("servicios_duracion_check");
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    expect(source).toMatch(/servicios_duracion_check/);
+    expect(source).toMatch(/duracion_minutos > 0 AND duracion_minutos % 5 = 0/);
+  });
+
+  it("exposes CHECK servicios_nombre_length via getTableConfig", () => {
+    const config = tableConfig() as unknown as { checks?: Array<{ name?: string }> };
+    const checks = config.checks ?? [];
+    const names = checks.map((c) => c.name);
+    expect(names).toContain("servicios_nombre_length");
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    expect(source).toMatch(/servicios_nombre_length/);
+    expect(source).toMatch(/length\(nombre\) BETWEEN 1 AND 100/);
+  });
+});
+
 describe("t007 negative scope guards (REQ-SRV-06)", () => {
   it("ships no HTTP route under src/app/api for services", () => {
     const apiDir = resolve(__dirname, "../../app/api");
@@ -274,18 +296,18 @@ describe("t007 negative scope guards (REQ-SRV-06)", () => {
     expect(existsSync(servicesDir)).toBe(false);
   });
 
-  it("defines no DB CHECK for duracion in drizzle sql", () => {
+  it("defines DB CHECK for duracion in drizzle 0004 sql (t009)", () => {
     const drizzleDir = resolve(__dirname, "../../../drizzle");
-    let files: string[] = [];
-    try {
-      files = readdirSync(drizzleDir).filter((f) => f.endsWith(".sql"));
-    } catch {
-      files = [];
-    }
-    for (const file of files) {
-      const sql = readFileSync(resolve(drizzleDir, file), "utf8");
-      expect(sql).not.toMatch(/CHECK.*duracion/i);
-    }
+    const sql = readFileSync(
+      resolve(drizzleDir, "0004_graceful_james_howlett.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/CHECK.*duracion/i);
+    expect(sql).toMatch(/servicios_duracion_check/);
+    expect(sql).toMatch(/servicios_nombre_length/);
+    // also verify btree_gist and EXCLUDE present in same migration
+    expect(sql).toMatch(/btree_gist/);
+    expect(sql).toMatch(/no_overlap_per_capacity/);
   });
 
   it("has no citext or composite UNIQUE leaked", () => {

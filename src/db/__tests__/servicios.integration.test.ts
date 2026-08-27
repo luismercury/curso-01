@@ -212,9 +212,10 @@ describe("servicios repository (integration)", () => {
       `SELECT check_clause FROM information_schema.check_constraints
         WHERE constraint_name LIKE '%servicios%'`,
     );
-    for (const row of checks.rows) {
-      expect(row.check_clause).not.toMatch(/duracion/i);
-    }
+    // t009: servicios now has CHECKs, verify duracion constraint present
+    const all = checks.rows.map((r) => r.check_clause).join(" ");
+    expect(all).toMatch(/duracion_minutos/);
+    expect(all).toMatch(/length/);
   });
 
   d("$onUpdate bumps updated_at past created_at on write", async () => {

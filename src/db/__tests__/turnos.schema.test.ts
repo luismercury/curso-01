@@ -242,16 +242,48 @@ describe("turnoInputSchema validator (R3,R4)", () => {
   });
 });
 
-describe("t008 negative scope guards (R7)", () => {
-  it("schema has no CHECK/EXCLUDE/btree_gist/canTransition/WorkshopConfig", () => {
+describe("t009 DB CHECK + EXCLUDE hardening — turnos (RED)", () => {
+  it("exposes CHECK turnos_estado_check via getTableConfig", () => {
+    const config = tableConfig() as unknown as { checks?: Array<{ name?: string }> };
+    const checks = config.checks ?? [];
+    const names = checks.map((c) => c.name);
+    expect(names).toContain("turnos_estado_check");
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    expect(source).toMatch(/turnos_estado_check/);
+    expect(source).toMatch(/estado IN \('PENDIENTE','CONFIRMADO','RECHAZADO','CANCELADO'\)/);
+  });
+
+  it("exposes CHECK turnos_interval_check via getTableConfig", () => {
+    const config = tableConfig() as unknown as { checks?: Array<{ name?: string }> };
+    const checks = config.checks ?? [];
+    const names = checks.map((c) => c.name);
+    expect(names).toContain("turnos_interval_check");
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    expect(source).toMatch(/turnos_interval_check/);
+    expect(source).toMatch(/fecha_hora_fin > fecha_hora_inicio/);
+  });
+
+  it("declares EXCLUDE no_overlap_per_capacity with btree_gist prerequisite (file-content)", () => {
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    // Drizzle gap documented: EXCLUDE is manual SQL in migration + comment in schema
+    expect(source).toMatch(/btree_gist/);
+    expect(source).toMatch(/no_overlap_per_capacity/);
+    // Also verify migration file will contain EXCLUDE after GREEN (file-content fallback)
+    // Before GREEN this must FAIL because schema lacks EXCLUDE/btree_gist
+  });
+});
+
+describe("t008 negative scope guards (R7) — updated for t009", () => {
+  it("schema has CHECK/EXCLUDE/btree_gist but still no canTransition/WorkshopConfig", () => {
     const schemaSource = readFileSync(
       resolve(__dirname, "../schema.ts"),
       "utf8",
     );
-    expect(schemaSource).not.toMatch(/CHECK.*estado/i);
-    expect(schemaSource).not.toMatch(/CHECK.*fecha_hora/i);
-    expect(schemaSource).not.toMatch(/EXCLUDE.*gist/i);
-    expect(schemaSource).not.toMatch(/btree_gist/i);
+    expect(schemaSource).toMatch(/turnos_estado_check/);
+    expect(schemaSource).toMatch(/turnos_interval_check/);
+    expect(schemaSource).toMatch(/EXCLUDE.*gist/i);
+    expect(schemaSource).toMatch(/btree_gist/i);
+    expect(schemaSource).toMatch(/no_overlap_per_capacity/);
     expect(schemaSource).not.toMatch(/canTransition/);
     expect(schemaSource).not.toMatch(/WorkshopConfig/);
   });

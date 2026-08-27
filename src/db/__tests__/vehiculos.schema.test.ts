@@ -255,6 +255,29 @@ describe("vehiculos repository negative scope (REQ-VEH-03 / D5)", () => {
   });
 });
 
+describe("t009 DB CHECK hardening — vehiculos (RED)", () => {
+  it("exposes CHECK vehiculos_patente_format via getTableConfig", () => {
+    const config = tableConfig() as unknown as { checks?: Array<{ name?: string; value?: unknown }> };
+    const checks = config.checks ?? [];
+    const names = checks.map((c) => c.name);
+    expect(names).toContain("vehiculos_patente_format");
+    // file-content dual source: regex asserts literal CHECK expression exists
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    expect(source).toMatch(/vehiculos_patente_format/);
+    expect(source).toMatch(/patente ~ '\^.*6,7.*'/);
+  });
+
+  it("exposes CHECK vehiculos_anio_range via getTableConfig with BETWEEN 1900 and extract(year from now())+1", () => {
+    const config = tableConfig() as unknown as { checks?: Array<{ name?: string; value?: unknown }> };
+    const checks = config.checks ?? [];
+    const names = checks.map((c) => c.name);
+    expect(names).toContain("vehiculos_anio_range");
+    const source = readFileSync(resolve(__dirname, "../schema.ts"), "utf8");
+    expect(source).toMatch(/vehiculos_anio_range/);
+    expect(source).toMatch(/anio BETWEEN 1900 AND extract\(year from now\(\)\)\+1/);
+  });
+});
+
 describe("t006 negative scope guards (REQ-VEH-06)", () => {
   it("ships no HTTP route under src/app/api for vehicles", () => {
     const apiDir = resolve(__dirname, "../../app/api");

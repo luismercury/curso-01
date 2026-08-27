@@ -8,6 +8,30 @@ import { hasPgCode } from "@/lib/errors";
  * error on `cause`. hasPgCode walks the cause chain so repositories can
  * translate infrastructure errors without importing driver types.
  */
+describe("t009 hasPgCode distinct mapping — 23514 vs 23P01 (RED)", () => {
+  it("distinguishes 23514 CHECK violation from 23P01 EXCLUDE violation via hasPgCode and file-content mapping", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const checkErr = Object.assign(new Error("check_violation"), { code: "23514" });
+    const excludeErr = Object.assign(new Error("exclusion_violation"), { code: "23P01" });
+    expect(hasPgCode(checkErr, "23514")).toBe(true);
+    expect(hasPgCode(checkErr, "23P01")).toBe(false);
+    expect(hasPgCode(excludeErr, "23P01")).toBe(true);
+    expect(hasPgCode(excludeErr, "23514")).toBe(false);
+    const wrappedCheck = new Error("wrapped", { cause: checkErr });
+    const wrappedExclude = new Error("wrapped", { cause: excludeErr });
+    expect(hasPgCode(wrappedCheck, "23514")).toBe(true);
+    expect(hasPgCode(wrappedExclude, "23P01")).toBe(true);
+    expect(hasPgCode(wrappedCheck, "23P01")).toBe(false);
+    // File-content dual source: errors.ts must document/map both codes distinctly
+    // This assertion FAILS before GREEN because errors.ts has no mention of 23514/23P01
+    const source = readFileSync(resolve("src/lib/errors.ts"), "utf8");
+    expect(source).toMatch(/23514/);
+    expect(source).toMatch(/23P01/);
+    expect(source).toMatch(/23503/);
+  });
+});
+
 describe("hasPgCode cause-chain walker (D4)", () => {
   it("finds the code directly on the error object", () => {
     const error = Object.assign(new Error("duplicate key"), { code: "23505" });

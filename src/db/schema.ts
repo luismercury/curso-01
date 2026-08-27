@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   integer,
   pgTable,
@@ -69,7 +71,14 @@ export const vehiculos = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => [index("idx_vehiculo_cliente_id").on(table.clienteId)],
+  (table) => [
+    index("idx_vehiculo_cliente_id").on(table.clienteId),
+    check("vehiculos_patente_format", sql`patente ~ '^[A-Z0-9]{6,7}$'`),
+    check(
+      "vehiculos_anio_range",
+      sql`anio BETWEEN 1900 AND extract(year from now())+1`,
+    ),
+  ],
 );
 
 export type VehiculoRow = typeof vehiculos.$inferSelect;
@@ -84,20 +93,33 @@ export type VehiculoInsert = typeof vehiculos.$inferInsert;
  * stay Spanish); DTO mapping to English camelCase happens in
  * src/db/mappers/servicio.ts. No DB CHECKs — deferred to T-009.
  */
-export const servicios = pgTable("servicios", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  nombre: varchar("nombre", { length: 100 }).notNull().unique(),
-  descripcion: varchar("descripcion", { length: 500 }),
-  duracionMinutos: integer("duracion_minutos").notNull(),
-  activo: boolean("activo").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const servicios = pgTable(
+  "servicios",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nombre: varchar("nombre", { length: 100 }).notNull().unique(),
+    descripcion: varchar("descripcion", { length: 500 }),
+    duracionMinutos: integer("duracion_minutos").notNull(),
+    activo: boolean("activo").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    check(
+      "servicios_duracion_check",
+      sql`duracion_minutos > 0 AND duracion_minutos % 5 = 0`,
+    ),
+    check(
+      "servicios_nombre_length",
+      sql`length(nombre) BETWEEN 1 AND 100`,
+    ),
+  ],
+);
 
 export type ServicioRow = typeof servicios.$inferSelect;
 export type ServicioInsert = typeof servicios.$inferInsert;
@@ -114,6 +136,10 @@ export type ServicioInsert = typeof servicios.$inferInsert;
  * FKs RESTRICT (not CASCADE/SET NULL) preserve audit trail; indexes on FKs +
  * fecha_hora_inicio back filtering and joins.
  */
+// EXCLUDE gap: Drizzle has no EXCLUDE DSL. Constraint no_overlap_per_capacity
+// is created manually in drizzle/0004_*.sql (CREATE EXTENSION btree_gist + ALTER
+// TABLE ... ADD CONSTRAINT ... EXCLUDE USING gist) and verified via
+// pg_constraint contype='x' + file-content tests. See Technical-spec §6.4 / §10.
 export const turnos = pgTable(
   "turnos",
   {
@@ -144,6 +170,14 @@ export const turnos = pgTable(
     index("idx_turno_vehiculo_id").on(table.vehiculoId),
     index("idx_turno_servicio_id").on(table.servicioId),
     index("idx_turno_fecha_hora_inicio").on(table.fechaHoraInicio),
+    check(
+      "turnos_estado_check",
+      sql`estado IN ('PENDIENTE','CONFIRMADO','RECHAZADO','CANCELADO')`,
+    ),
+    check(
+      "turnos_interval_check",
+      sql`fecha_hora_fin > fecha_hora_inicio`,
+    ),
   ],
 );
 
