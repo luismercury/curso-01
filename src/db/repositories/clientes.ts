@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import type { Db } from "@/db";
+import type { DbOrTx } from "@/db";
 import { clientes } from "@/db/schema";
 import type { ClienteDTO } from "@/db/mappers/cliente";
 import { toClienteDTO } from "@/db/mappers/cliente";
@@ -27,7 +27,7 @@ function isUniqueViolation(error: unknown): boolean {
  * in v1. All functions take the db handle as first argument for testability.
  */
 export async function createCliente(
-  db: Db,
+  db: DbOrTx,
   input: ClienteInput,
 ): Promise<ClienteDTO> {
   const validated = clienteInputSchema.parse(input);
@@ -46,7 +46,7 @@ export async function createCliente(
 }
 
 export async function findClienteById(
-  db: Db,
+  db: DbOrTx,
   id: string,
 ): Promise<ClienteDTO | null> {
   const rows = await db
@@ -58,7 +58,7 @@ export async function findClienteById(
 }
 
 export async function findClienteByEmail(
-  db: Db,
+  db: DbOrTx,
   email: string,
 ): Promise<ClienteDTO | null> {
   const rows = await db

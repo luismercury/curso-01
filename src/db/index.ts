@@ -13,4 +13,6 @@ const pool = new Pool({
 
 export const db = drizzle(pool);
 export type Db = typeof db;
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type DbOrTx = Db | Tx;
 export { pool };

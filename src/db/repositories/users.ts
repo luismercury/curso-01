@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Db } from "@/db";
+import type { DbOrTx } from "@/db";
 import { users } from "@/db/schema";
 import type { UserDTO } from "@/db/mappers/user";
 import { toUserDTO } from "@/db/mappers/user";
@@ -17,7 +17,7 @@ export class UserEmailTakenError extends DomainError {
 }
 
 export async function createUser(
-  db: Db,
+  db: DbOrTx,
   input: { email: string; password: string; role?: "CLIENTE" | "ADMINISTRADOR" },
 ): Promise<UserDTO> {
   const email = input.email.trim().toLowerCase();
@@ -39,7 +39,7 @@ export async function createUser(
 }
 
 export async function findUserByEmail(
-  db: Db,
+  db: DbOrTx,
   email: string,
 ): Promise<(UserDTO & { passwordHash: string }) | null> {
   const normalized = email.trim().toLowerCase();
@@ -49,7 +49,7 @@ export async function findUserByEmail(
   return { ...toUserDTO(row), passwordHash: row.passwordHash };
 }
 
-export async function findUserById(db: Db, id: string): Promise<UserDTO | null> {
+export async function findUserById(db: DbOrTx, id: string): Promise<UserDTO | null> {
   const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return rows[0] ? toUserDTO(rows[0]) : null;
 }
