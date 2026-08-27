@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import type { Db } from "@/db";
+import type { DbOrTx } from "@/db";
 import { vehiculos } from "@/db/schema";
 import type { VehiculoDTO } from "@/db/mappers/vehiculo";
 import { toVehiculoDTO } from "@/db/mappers/vehiculo";
@@ -60,7 +60,7 @@ export class VehiculoClienteNotFoundError extends DomainError {
  * than createVehiculo. Ownership changes are out of scope per REQ-VEH-06.
  */
 export async function createVehiculo(
-  db: Db,
+  dbOrTx: DbOrTx,
   input: CreateVehiculoInput,
 ): Promise<VehiculoDTO> {
   // RSK-04 dual defense: normalize here even though the Zod transform will
@@ -73,7 +73,7 @@ export async function createVehiculo(
     patente: normalizePatente(input.plate),
   });
   try {
-    const [row] = await db.insert(vehiculos).values(validated).returning();
+    const [row] = await dbOrTx.insert(vehiculos).values(validated).returning();
     if (!row) {
       throw new Error("INSERT INTO vehiculos returned no rows");
     }
@@ -92,10 +92,10 @@ export async function createVehiculo(
 }
 
 export async function findVehiculoById(
-  db: Db,
+  dbOrTx: DbOrTx,
   id: string,
 ): Promise<VehiculoDTO | null> {
-  const rows = await db
+  const rows = await dbOrTx
     .select()
     .from(vehiculos)
     .where(eq(vehiculos.id, id))
@@ -104,10 +104,10 @@ export async function findVehiculoById(
 }
 
 export async function findVehiculoByPatente(
-  db: Db,
+  dbOrTx: DbOrTx,
   plate: string,
 ): Promise<VehiculoDTO | null> {
-  const rows = await db
+  const rows = await dbOrTx
     .select()
     .from(vehiculos)
     .where(eq(vehiculos.patente, normalizePatente(plate)))
@@ -116,10 +116,10 @@ export async function findVehiculoByPatente(
 }
 
 export async function findVehiculosByClienteId(
-  db: Db,
+  dbOrTx: DbOrTx,
   customerId: string,
 ): Promise<VehiculoDTO[]> {
-  const rows = await db
+  const rows = await dbOrTx
     .select()
     .from(vehiculos)
     .where(eq(vehiculos.clienteId, customerId));

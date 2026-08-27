@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 /**
- * App-level validation only (REQ-VEH-02): no DB CHECK constraints.
- * CHECKs for patente regex and anio bounds are deferred to T-009 hardening.
+ * Validation mirrors DB CHECKs (vehiculos_patente_format, vehiculos_anio_range).
+ * DB enforces patente regex `^[A-Z0-9]{6,7}$` and `anio BETWEEN 1900 AND extract(year from now())+1`.
+ * App-level Zod mirrors those DB constraints for early feedback and dual-defense
+ * normalization (RSK-04). See src/db/schema.ts vehiculos definition.
  *
  * normalizePatente is exported so repositories can apply it pre-insert as a
  * second defense layer (RSK-04): callers bypassing Zod still store

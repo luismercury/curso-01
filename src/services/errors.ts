@@ -14,3 +14,45 @@ export class CustomerEmailTakenError extends DomainError {
     this.email = email;
   }
 }
+
+/**
+ * Thrown when vehicle creation collides on patente UNIQUE (global).
+ * Maps PG 23505 → HTTP 409 PLATE_ALREADY_EXISTS.
+ */
+export class VehiclePlateTakenError extends DomainError {
+  readonly code = "PLATE_ALREADY_EXISTS" as const;
+  readonly plate: string;
+
+  constructor(plate: string, options?: { cause?: unknown }) {
+    super(`A vehicle with plate "${plate}" already exists`);
+    this.name = "VehiclePlateTakenError";
+    this.plate = plate;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
+ * Thrown when vehicle creation references a non-existent clienteId (FK).
+ * Maps PG 23503 → HTTP 404 CUSTOMER_NOT_FOUND.
+ */
+export class VehicleCustomerNotFoundError extends DomainError {
+  readonly code = "CUSTOMER_NOT_FOUND" as const;
+  readonly customerId: string;
+
+  constructor(customerId: string, options?: { cause?: unknown }) {
+    super(`No customer exists with id "${customerId}"`);
+    this.name = "VehicleCustomerNotFoundError";
+    this.customerId = customerId;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
+ * Alias for backward compatibility with Spanish repository naming.
+ * Prefer VehicleCustomerNotFoundError in service layer.
+ */
+export const VehicleClienteNotFoundError = VehicleCustomerNotFoundError;
