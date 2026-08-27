@@ -32,21 +32,27 @@ describe("t009 dual-source Tier C — file-content (no DB)", () => {
 
   it("migration 0004 exists with btree_gist preamble and EXCLUDE, journal idx 4", () => {
     const journal = JSON.parse(readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"));
-    expect(journal.entries).toHaveLength(5);
-    const last = journal.entries[journal.entries.length - 1];
-    expect(last.idx).toBe(4);
-    expect(last.tag).toMatch(/^0004_/);
-    const sql = readFileSync(resolve(`drizzle/${last.tag}.sql`), "utf8");
+    expect(journal.entries).toHaveLength(6);
+    const e4 = journal.entries.find((e: { idx: number }) => e.idx === 4);
+    expect(e4).toBeDefined();
+    expect(e4.tag).toMatch(/^0004_/);
+    const sql = readFileSync(resolve(`drizzle/${e4.tag}.sql`), "utf8");
     expect(sql).toMatch(/CREATE EXTENSION IF NOT EXISTS "btree_gist"/);
     expect(sql).toMatch(/no_overlap_per_capacity/);
     expect(sql).toMatch(/EXCLUDE USING gist/);
     expect(sql).toMatch(/tstzrange/);
   });
 
-  it("_journal.json has linear idx 0..4", () => {
+  it("_journal.json has linear idx 0..5 and 0005 users", () => {
     const journal = JSON.parse(readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"));
     const idxs = journal.entries.map((e: { idx: number }) => e.idx).sort((a: number, b: number) => a - b);
-    expect(idxs).toEqual([0, 1, 2, 3, 4]);
+    expect(idxs).toEqual([0, 1, 2, 3, 4, 5]);
+    const e5 = journal.entries.find((e: { idx: number }) => e.idx === 5);
+    expect(e5).toBeDefined();
+    expect(e5.tag).toMatch(/^0005_/);
+    const sql5 = readFileSync(resolve(`drizzle/${e5.tag}.sql`), "utf8");
+    expect(sql5).toMatch(/users/);
+    expect(sql5).toMatch(/users_role_check/);
   });
 });
 
