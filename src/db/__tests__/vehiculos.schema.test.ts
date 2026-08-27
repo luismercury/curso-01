@@ -278,8 +278,10 @@ describe("t009 DB CHECK hardening — vehiculos (RED)", () => {
   });
 });
 
-describe("t006 negative scope guards (REQ-VEH-06)", () => {
-  it("ships no HTTP route under src/app/api for vehicles", () => {
+describe("t006 negative scope guards (REQ-VEH-06) — superseded by T-012/T-014", () => {
+  it("ships nested vehicles route under src/app/api/customers/[customerId]/vehicles (T-014)", () => {
+    const routePath = resolve(__dirname, "../../app/api/customers/[customerId]/vehicles/route.ts");
+    expect(existsSync(routePath)).toBe(true);
     const apiDir = resolve(__dirname, "../../app/api");
     let entries: string[] = [];
     try {
@@ -288,13 +290,13 @@ describe("t006 negative scope guards (REQ-VEH-06)", () => {
       // No api directory at all — also zero matches.
     }
     const vehicleRoutes = entries.filter((entry) =>
-      entry.replaceAll("\\\\", "/").includes("vehicles"),
+      entry.replace(/\\/g, "/").includes("vehicles"),
     );
-    expect(vehicleRoutes).toEqual([]);
+    expect(vehicleRoutes.length).toBeGreaterThan(0);
   });
 
-  it("has no VehicleService anywhere in src/ (deferred to T-012)", () => {
-    expect(existsSync(resolve(__dirname, "../services"))).toBe(false);
+  it("has VehicleService in src/services (T-012 done)", () => {
+    expect(existsSync(resolve(__dirname, "../../services/vehicleService.ts"))).toBe(true);
   });
 
   it("defines no soft-delete column in the schema (deletedAt)", () => {
