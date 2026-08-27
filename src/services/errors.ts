@@ -16,6 +16,24 @@ export class CustomerEmailTakenError extends DomainError {
 }
 
 /**
+ * Thrown when a customer lookup by id finds no row.
+ * Maps to HTTP 404 CUSTOMER_NOT_FOUND.
+ */
+export class CustomerNotFoundError extends DomainError {
+  readonly code = "CUSTOMER_NOT_FOUND" as const;
+  readonly customerId: string;
+
+  constructor(customerId: string, options?: { cause?: unknown }) {
+    super(`No customer exists with id "${customerId}"`);
+    this.name = "CustomerNotFoundError";
+    this.customerId = customerId;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
  * Thrown when vehicle creation collides on patente UNIQUE (global).
  * Maps PG 23505 → HTTP 409 PLATE_ALREADY_EXISTS.
  */

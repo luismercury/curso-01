@@ -7,8 +7,9 @@ import { clientes, users } from "@/db/schema";
 import { clienteInputSchema } from "@/db/validators/cliente";
 import { hashPassword } from "@/lib/auth/password";
 import { hasPgCode } from "@/lib/errors";
-import { CustomerEmailTakenError } from "@/services/errors";
+import { CustomerNotFoundError, CustomerEmailTakenError } from "@/services/errors";
 import type { ClienteDTO } from "@/db/mappers/cliente";
+import { findClienteById } from "@/db/repositories/clientes";
 
 /**
  * Normalized email: trim, lower-case, then validate format.
@@ -95,4 +96,20 @@ export async function createCustomer(
     }
     throw error;
   }
+}
+
+/**
+ * Thin read for GET /api/customers/{id}.
+ * Mirrors vehicleService thin-read pattern; delegates to findClienteById
+ * and throws CustomerNotFoundError (404) when missing.
+ */
+export async function getCustomerById(
+  dbOrTx: DbOrTx,
+  id: string,
+): Promise<ClienteDTO> {
+  const dto = await findClienteById(dbOrTx, id);
+  if (!dto) {
+    throw new CustomerNotFoundError(id);
+  }
+  return dto;
 }
