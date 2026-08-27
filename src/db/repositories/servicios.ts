@@ -20,6 +20,7 @@ export interface CreateServicioInput {
 }
 
 export class ServicioNombreTakenError extends DomainError {
+  readonly code = "SERVICE_ALREADY_EXISTS" as const;
   readonly nombre: string;
 
   constructor(nombre: string, options?: { cause?: unknown }) {
@@ -98,4 +99,18 @@ export async function listServicios(
   }
   const rows = await db.select().from(servicios);
   return rows.map(toServicioDTO);
+}
+
+export async function updateServicio(
+  db: Db,
+  id: string,
+  patch: { activo: boolean },
+): Promise<ServicioDTO | null> {
+  const rows = await db
+    .update(servicios)
+    .set({ activo: patch.activo, updatedAt: new Date() })
+    .where(eq(servicios.id, id))
+    .returning();
+  const row = rows[0];
+  return row ? toServicioDTO(row) : null;
 }

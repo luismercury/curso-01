@@ -36,3 +36,16 @@ Thin layer over T-011/T-012 services. INV-03 `requireAuth`+`assertOwnership` (AD
 - Conditional auth: `includeInactive=true` → `requireAuth` → `assertRole ADMINISTRADOR` → 401 `UNAUTHORIZED` / 403 `FORBIDDEN` via `toErrorBody` §12; otherwise public path skips auth (middleware `PUBLIC_GET_SERVICES` whitelist retained, no change)
 - Delegates to `servicioService.listServices(db, {includeInactive})` via `DbOrTx` → `listServicios({activeOnly:!includeInactive})` → `toServicioDTO` (INV-08 English `ServicioDTO {id,name,description,durationMinutes,active,createdAt,updatedAt}`, no snake_case)
 - 200 `ServicioDTO[]` (active-only or all), 400/401/403 §12; never 404 for list; `NextResponse.json` ISO 8601 UTC Date serialization; thin handler ~45 LOC, `import "server-only"`, no transaction
+
+### POST /api/services — t016b-service-crud (FASE 4)
+- Auth: `requireAuth` 401 → `assertRole ADMINISTRADOR` 403 before JSON parse/DB (`§12` envelope via `toErrorBody`); no DB write on auth fail (verified by route test mock)
+- Body strict `serviceCreateSchema` `{name 1..100 trim, description 0..500 optional nullable, durationMinutes int 30..120 %5==0, active boolean optional default true}.strict()` → 400 `VALIDATION_ERROR` with `issues` on empty name, >100, bad duration, unknown field, missing fields, invalid JSON
+- Delegates to `servicioService.createService(db, parsed)` → `createServicio` (English→Spanish remap `name→nombre` etc.) → 23505 `nombre UNIQUE` → `ServicioNombreTakenError` → 409 `SERVICE_ALREADY_EXISTS`
+- 201 `ServicioDTO` `{id,name,description,durationMinutes,active,createdAt,updatedAt}` INV-08 English camelCase, `TIMESTAMPTZ` UTC ISO 8601; 400/401/403/409 §12; `server-only`, `DbOrTx` injectable, no transaction
+
+### PATCH /api/services/{id} — t016b-service-crud (FASE 4)
+- Auth: `requireAuth` 401 → `assertRole ADMINISTRADOR` 403 before parse/DB; no DB on 401/403
+- Params: `id` `z.string().uuid()` → 400 `VALIDATION_ERROR` on non-UUID/empty before DB; body `servicePatchSchema` `z.object({active:z.boolean()}).strict()` → 400 on non-boolean/empty/extra/missing; `Invalid JSON` → 400
+- Delegates to `servicioService.updateServiceActive(db,id,active)` → `updateServicio` (`update servicios set activo, updatedAt where id returning`) → null → `ServiceNotFoundError` → 404 `SERVICE_NOT_FOUND`; success 200 `ServicioDTO` with `active` toggled
+- Visibility contract: `GET /api/services` hides `activo=false`; `GET ?includeInactive=true` as admin shows it; appointment consumer `POST /api/appointments {serviceId: inactive}` → 400 `INVALID_SERVICE` (contract documented, enforced in FASE 5 T-028)
+- Error codes §12 extension: `SERVICE_ALREADY_EXISTS 409`, `SERVICE_NOT_FOUND 404` in `ERROR_CODES`/`STATUS_BY_CODE`

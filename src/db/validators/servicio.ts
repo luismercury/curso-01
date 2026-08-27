@@ -19,3 +19,33 @@ export const servicioInputSchema = z.object({
 });
 
 export type ServicioInput = z.infer<typeof servicioInputSchema>;
+
+/**
+ * English API boundary schemas for T-016b (INV-08).
+ * Strict: unknown fields rejected, duration 30..120 %5, description 0..500.
+ */
+export const serviceCreateSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name must not be empty").max(100),
+    description: z.string().trim().max(500).optional().nullable(),
+    durationMinutes: z
+      .number()
+      .int()
+      .min(30, "Duration must be at least 30 minutes")
+      .max(120, "Duration must be at most 120 minutes")
+      .refine((v) => v % 5 === 0, {
+        message: "Duration must be a multiple of 5",
+      }),
+    active: z.boolean().optional().default(true),
+  })
+  .strict();
+
+export type ServiceCreateInput = z.input<typeof serviceCreateSchema>;
+
+export const servicePatchSchema = z
+  .object({
+    active: z.boolean(),
+  })
+  .strict();
+
+export type ServicePatchInput = z.infer<typeof servicePatchSchema>;

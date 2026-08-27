@@ -6,13 +6,32 @@ vi.mock("server-only", () => ({}));
 
 const mockListServicios = vi.fn();
 const mockFindServicioById = vi.fn();
+const mockCreateServicio = vi.fn();
+const mockUpdateServicio = vi.fn();
 
 vi.mock("@/db/repositories/servicios", () => ({
   listServicios: (...args: unknown[]) => mockListServicios(...args),
   findServicioById: (...args: unknown[]) => mockFindServicioById(...args),
+  createServicio: (...args: unknown[]) => mockCreateServicio(...args),
+  updateServicio: (...args: unknown[]) => mockUpdateServicio(...args),
+  ServicioNombreTakenError: class ServicioNombreTakenError extends Error {
+    code = "SERVICE_ALREADY_EXISTS";
+    nombre: string;
+    constructor(nombre: string) {
+      super(`A servicio with nombre "${nombre}" already exists`);
+      this.name = "ServicioNombreTakenError";
+      this.nombre = nombre;
+    }
+  },
 }));
 
-import { listServices, getServiceById, getServiceDuration } from "@/services/servicioService";
+import {
+  listServices,
+  getServiceById,
+  getServiceDuration,
+  createService,
+  updateServiceActive,
+} from "@/services/servicioService";
 import { ServiceNotFoundError } from "@/services/errors";
 import { DomainError } from "@/lib/errors";
 
@@ -236,5 +255,109 @@ describe("servicioService guards", () => {
     expect(err.name).toBe("ServiceNotFoundError");
     expect(err.code).toBe("SERVICE_NOT_FOUND");
     expect(err.serviceId).toBe(SERVICE_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createService
+// ---------------------------------------------------------------------------
+describe("createService", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("success delegates to createServicio and returns DTO", async () => {
+    const dto = makeServicioDTO({ name: "Cambio Aceite", durationMinutes: 60 });
+    mockCreateServicio.mockResolvedValue(dto);
+    const result = await createService({} as never, {
+      name: "Cambio Aceite",
+      durationMinutes: 60,
+    });
+    expect(mockCreateServicio).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(dto);
+  });
+
+  it("success with default active true", async () => {
+    const dto = makeServicioDTO({ active: true });
+    mockCreateServicio.mockResolvedValue(dto);
+    const result = await createService({} as never, {
+      name: "X",
+      durationMinutes: 30,
+    });
+    expect(result.active).toBe(true);
+  });
+
+  it("maps 23505 PG error to ServicioNombreTakenError with code SERVICE_ALREADY_EXISTS", async () => {
+    const pgError = Object.assign(new Error("duplicate key"), { code: "23505" });
+    mockCreateServicio.mockRejectedValue(pgError);
+    await expect(
+      createService({} as never, { name: "Frenos", durationMinutes: 30 }),
+    ).rejects.toMatchObject({ code: "SERVICE_ALREADY_EXISTS" });
+  });
+
+  it("propagates ServicioNombreTakenError directly", async () => {
+    const { ServicioNombreTakenError } = await import("@/db/repositories/servicios");
+    const err = new ServicioNombreTakenError("Frenos");
+    mockCreateServicio.mockRejectedValue(err);
+    await expect(
+      createService({} as never, { name: "Frenos", durationMinutes: 30 }),
+    ).rejects.toBe(err);
+  });
+
+  it("wraps 23505 via hasPgCode cause chain", async () => {
+    const inner = Object.assign(new Error("inner"), { code: "23505" });
+    const wrapped = new Error("wrapped");
+    (wrapped as unknown as { cause: unknown }).cause = inner;
+    mockCreateServicio.mockRejectedValue(wrapped);
+    await expect(
+      createService({} as never, { name: "Dup", durationMinutes: 30 }),
+    ).rejects.toMatchObject({ code: "SERVICE_ALREADY_EXISTS" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateServiceActive
+// ---------------------------------------------------------------------------
+describe("updateServiceActive", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("success returns DTO with updated active", async () => {
+    const dto = makeServicioDTO({ active: false });
+    mockUpdateServicio.mockResolvedValue(dto);
+    const result = await updateServiceActive({} as never, SERVICE_ID, false);
+    expect(mockUpdateServicio).toHaveBeenCalledWith(expect.anything(), SERVICE_ID, {
+      activo: false,
+    });
+    expect(result.active).toBe(false);
+  });
+
+  it("throws ServiceNotFoundError with code SERVICE_NOT_FOUND when repo returns null", async () => {
+    mockUpdateServicio.mockResolvedValue(null);
+    await expect(updateServiceActive({} as never, UNKNOWN_ID, false)).rejects.toThrow(
+      ServiceNotFoundError,
+    );
+    await expect(updateServiceActive({} as never, UNKNOWN_ID, false)).rejects.toMatchObject({
+      code: "SERVICE_NOT_FOUND",
+    });
+  });
+
+  it("error contains serviceId", async () => {
+    mockUpdateServicio.mockResolvedValue(null);
+    try {
+      await updateServiceActive({} as never, UNKNOWN_ID, true);
+      expect.unreachable("should throw");
+    } catch (e) {
+      expect((e as ServiceNotFoundError).serviceId).toBe(UNKNOWN_ID);
+    }
+  });
+
+  it("throws ZodError for invalid UUID and skips DB call", async () => {
+    await expect(updateServiceActive({} as never, "not-a-uuid", true)).rejects.toThrow(
+      z.ZodError,
+    );
+    expect(mockUpdateServicio).not.toHaveBeenCalled();
+  });
+
+  it("throws ZodError for empty string UUID", async () => {
+    await expect(updateServiceActive({} as never, "", false)).rejects.toThrow(z.ZodError);
+    expect(mockUpdateServicio).not.toHaveBeenCalled();
   });
 });

@@ -4,8 +4,16 @@ import { z } from "zod";
 
 import type { DbOrTx } from "@/db";
 import type { ServicioDTO } from "@/db/mappers/servicio";
-import { findServicioById, listServicios } from "@/db/repositories/servicios";
+import {
+  createServicio,
+  findServicioById,
+  listServicios,
+  updateServicio,
+} from "@/db/repositories/servicios";
+import type { ServiceCreateInput } from "@/db/validators/servicio";
+import { hasPgCode } from "@/lib/errors";
 import { ServiceNotFoundError } from "@/services/errors";
+import { ServicioNombreTakenError } from "@/db/repositories/servicios";
 
 const uuidSchema = z.string().uuid("Invalid service ID format");
 
@@ -49,4 +57,45 @@ export async function getServiceDuration(
 ): Promise<number> {
   const dto = await getServiceById(db, serviceId);
   return dto.durationMinutes;
+}
+
+/**
+ * Create a new service. DbOrTx injectable, server-only, no auth inside.
+ * Maps PG 23505 → ServicioNombreTakenError (409 SERVICE_ALREADY_EXISTS).
+ */
+export async function createService(
+  db: DbOrTx,
+  input: ServiceCreateInput,
+): Promise<ServicioDTO> {
+  try {
+    return await createServicio(db as never, {
+      name: input.name,
+      description: input.description ?? null,
+      durationMinutes: input.durationMinutes,
+      active: input.active ?? true,
+    });
+  } catch (error) {
+    if (error instanceof ServicioNombreTakenError) throw error;
+    if (hasPgCode(error, "23505")) {
+      throw new ServicioNombreTakenError(input.name, { cause: error });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Update only the active flag of a service.
+ * Validates UUID before DB, maps null → ServiceNotFoundError (404).
+ */
+export async function updateServiceActive(
+  db: DbOrTx,
+  id: string,
+  active: boolean,
+): Promise<ServicioDTO> {
+  uuidSchema.parse(id);
+  const result = await updateServicio(db as never, id, { activo: active });
+  if (!result) {
+    throw new ServiceNotFoundError(id);
+  }
+  return result;
 }
