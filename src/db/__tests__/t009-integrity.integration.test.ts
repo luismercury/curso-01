@@ -103,7 +103,7 @@ describe("t009 dual-source Tier C — pg_constraint / pg_extension (gated)", () 
     const clienteRes = await pool!.query<{ id: string }>(
       "INSERT INTO clientes (nombre, apellido, telefono, email) VALUES ('Test','User','+54 11 1234','t009-check-'||gen_random_uuid()::text) RETURNING id",
     );
-    const clienteId = clienteRes.rows[0].id;
+    const clienteId = clienteRes.rows[0]!.id;
     // invalid patente
     await expect(
       pool!.query("INSERT INTO vehiculos (cliente_id, marca, modelo, anio, patente) VALUES ($1,'Toyota','Corolla',2020,'ab-12')", [clienteId]),
@@ -124,12 +124,12 @@ describe("t009 dual-source Tier C — pg_constraint / pg_extension (gated)", () 
     const servicioRes = await pool!.query<{ id: string }>(
       "INSERT INTO servicios (nombre, duracion_minutos) VALUES ('t009-srv-'||gen_random_uuid()::text, 60) RETURNING id",
     );
-    const servicioId = servicioRes.rows[0].id;
+    const servicioId = servicioRes.rows[0]!.id;
     const vehRes = await pool!.query<{ id: string }>(
       "INSERT INTO vehiculos (cliente_id, marca, modelo, anio, patente) VALUES ($1,'Toyota','Corolla',2020, 'T'||upper(substr(md5(random()::text),1,6))) RETURNING id",
       [clienteId],
     );
-    const vehiculoId = vehRes.rows[0].id;
+    const vehiculoId = vehRes.rows[0]!.id;
     // invalid estado
     await expect(
       pool!.query(
