@@ -78,8 +78,9 @@ cp .env.example .env
 
 # 4. Base de datos (local)
 docker compose up -d --wait   # postgres:16-alpine con healthcheck
-pnpm db:migrate               # aplica migraciones Drizzle (tabla clientes)
+pnpm db:migrate && pnpm db:seed  # aplica migraciones y puebla catálogo de servicios (idempotente, 3 servicios)
 # o usar un PostgreSQL 16+ propio apuntado por DATABASE_URL
+# Re-ejecutar `pnpm db:seed` es seguro (ON CONFLICT DO NOTHING); rollback: DELETE FROM servicios WHERE nombre IN ('Cambio de aceite','Revisión general','Alineación y balanceo')
 
 # 5. Desarrollo
 pnpm dev          # http://localhost:3000
@@ -103,6 +104,7 @@ Requiere Node.js 20+ y PostgreSQL 16+.
 | `npm run test:coverage` | Tests unitarios con reporte de cobertura |
 | `pnpm db:generate` | Genera migraciones Drizzle desde el schema |
 | `pnpm db:migrate` | Aplica migraciones contra la base local |
+| `pnpm db:seed` | Puebla el catálogo `servicios` (3 servicios, idempotente) |
 | `npm run lint` | Linter + typecheck |
 
 > Los tests end-to-end quedan diferidos a fases posteriores. Los scripts se consolidan en FASE 1 (T-001..T-004). Esta tabla define el contrato esperado.
