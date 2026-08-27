@@ -29,3 +29,10 @@ Thin layer over T-011/T-012 services. INV-03 `requireAuth`+`assertOwnership` (AD
 
 ### GET /api/customers/{customerId}/vehicles
 - Auth same as POST → `listVehiclesByCustomer` → 200 `VehiculoDTO[]` (empty `[]` ok); 400/401/403/404 §12
+
+### GET /api/services — t017-services-api (FASE 4)
+- Public by default: `GET /api/services` → 200 `ServicioDTO[]` active-only (`activo=true`), empty `[]` valid, no auth required
+- Query `includeInactive?: enum "true" | "false"` default `"false"` — strict `z.enum(["true","false"]).optional().default("false")` → 400 `VALIDATION_ERROR` with `issues` on garbage (`1`/`yes`/`True`/`TRUE`), bare `?includeInactive` or `?includeInactive=`, or empty value; `toValidationError` envelope
+- Conditional auth: `includeInactive=true` → `requireAuth` → `assertRole ADMINISTRADOR` → 401 `UNAUTHORIZED` / 403 `FORBIDDEN` via `toErrorBody` §12; otherwise public path skips auth (middleware `PUBLIC_GET_SERVICES` whitelist retained, no change)
+- Delegates to `servicioService.listServices(db, {includeInactive})` via `DbOrTx` → `listServicios({activeOnly:!includeInactive})` → `toServicioDTO` (INV-08 English `ServicioDTO {id,name,description,durationMinutes,active,createdAt,updatedAt}`, no snake_case)
+- 200 `ServicioDTO[]` (active-only or all), 400/401/403 §12; never 404 for list; `NextResponse.json` ISO 8601 UTC Date serialization; thin handler ~45 LOC, `import "server-only"`, no transaction
