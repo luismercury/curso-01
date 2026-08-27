@@ -1,11 +1,6 @@
 import "server-only";
 import { z } from "zod";
 
-/**
- * AUTH_SECRET is optional until FASE 2.5 (T-050).
- * Tightening migration = delete `.optional()` below:
- *   AUTH_SECRET: z.string().min(32),
- */
 const envSchema = z.object({
   DATABASE_URL: z
     .string()
@@ -19,7 +14,7 @@ const envSchema = z.object({
       },
       { error: "DATABASE_URL must be a valid postgresql:// URL" },
     ),
-  AUTH_SECRET: z.string().min(32).optional(), // see T-050 note above
+  AUTH_SECRET: z.string().min(32),
   APP_URL: z.url().default("http://localhost:3000"),
 });
 

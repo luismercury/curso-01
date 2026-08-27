@@ -183,3 +183,31 @@ export const turnos = pgTable(
 
 export type TurnoRow = typeof turnos.$inferSelect;
 export type TurnoInsert = typeof turnos.$inferInsert;
+
+/**
+ * users (T-050) — Auth user table, separate from clientes (INV-03).
+ * No FK to clientes; email lower+trim UNIQUE; role varchar CHECK.
+ * INV-06: TIMESTAMPTZ; INV-08: snake_case DB → camelCase DTO via mapper.
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: varchar("email", { length: 255 }).notNull().unique(),
+    passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+    role: varchar("role", { length: 20 }).notNull().default("CLIENTE"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    check("users_role_check", sql`role IN ('CLIENTE','ADMINISTRADOR')`),
+  ],
+);
+
+export type UserRow = typeof users.$inferSelect;
+export type UserInsert = typeof users.$inferInsert;
