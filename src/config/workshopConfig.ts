@@ -2,6 +2,13 @@ import "server-only";
 
 import { z } from "zod";
 
+import {
+  DEFAULT_OPERATING_INTERVALS,
+  ValidationError,
+  validateIntervals,
+} from "./workshopSchedule";
+import type { TimeInterval, WeeklySchedule } from "./workshopSchedule";
+
 /**
  * WorkshopConfig — single frozen source of truth for FASE 5 slot/booking policy.
  *
@@ -20,6 +27,24 @@ const intervalSchema = z.object({
   end: z.string().regex(/^\d{2}:\d{2}$/),
 });
 
+const weeklyScheduleSchema = z
+  .record(z.coerce.number().int().min(0).max(6), z.array(intervalSchema).min(1))
+  .optional()
+  .superRefine((val, ctx) => {
+    if (!val) return;
+    for (const intervals of Object.values(val)) {
+      try {
+        validateIntervals(intervals as TimeInterval[]);
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          ctx.addIssue({ code: "custom", message: err.message });
+        } else {
+          throw err;
+        }
+      }
+    }
+  });
+
 export const workshopConfigSchema = z.object({
   capacityPerSlot: z.number().int().min(1).default(1),
   slotStepMinutes: z
@@ -32,13 +57,11 @@ export const workshopConfigSchema = z.object({
     })
     .default(30),
   timezone: z.string().min(1).default("America/Argentina/Buenos_Aires"),
-  operatingHours: z.record(z.string(), z.array(intervalSchema)).optional(),
+  operatingHours: weeklyScheduleSchema,
 });
 
-export const DEFAULT_OPERATING_INTERVALS = [
-  { start: "09:00", end: "12:00" },
-  { start: "14:00", end: "18:00" },
-] as const;
+export { DEFAULT_OPERATING_INTERVALS };
+export type { TimeInterval, WeeklySchedule };
 
 export const workshopConfig = Object.freeze(
   workshopConfigSchema.parse({}),

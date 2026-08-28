@@ -92,11 +92,26 @@ describe("workshopConfig — frozen / intervals / DI", () => {
 
   it("config-provided operatingHours overrides DEFAULT", () => {
     const config: WorkshopConfig = workshopConfigSchema.parse({
-      operatingHours: { monday: [{ start: "10:00", end: "16:00" }] },
+      operatingHours: { 1: [{ start: "10:00", end: "16:00" }] },
     });
     const resolved = config.operatingHours ?? DEFAULT_OPERATING_INTERVALS;
-    expect(resolved).toEqual({ monday: [{ start: "10:00", end: "16:00" }] });
+    expect(resolved).toEqual({ 1: [{ start: "10:00", end: "16:00" }] });
     expect(resolved).not.toEqual(DEFAULT_OPERATING_INTERVALS);
+  });
+
+  it("coerces string key \"1\" to numeric 1", () => {
+    const config: WorkshopConfig = workshopConfigSchema.parse({
+      operatingHours: { "1": [{ start: "09:00", end: "12:00" }] },
+    });
+    expect(config.operatingHours?.[1]).toEqual([{ start: "09:00", end: "12:00" }]);
+  });
+
+  it("rejects out-of-range key 7", () => {
+    expect(() => workshopConfigSchema.parse({ operatingHours: { 7: [{ start: "09:00", end: "12:00" }] } } )).toThrow();
+  });
+
+  it("rejects string day name monday", () => {
+    expect(() => workshopConfigSchema.parse({ operatingHours: { monday: [{ start: "09:00", end: "12:00" }] } as unknown as Record<string, unknown> } )).toThrow();
   });
 
   it("DI param usage — service receives WorkshopConfig and applies alternate step", () => {
