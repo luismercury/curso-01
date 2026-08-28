@@ -6,6 +6,10 @@ import type { TurnoDTO } from "@/db/mappers/turno";
 import { toTurnoDTO } from "@/db/mappers/turno";
 import { turnoInputSchema } from "@/db/validators/turno";
 import { DomainError, hasPgCode } from "@/lib/errors";
+import { workshopConfig } from "@/config/workshopConfig";
+import type { WorkshopConfig } from "@/config/workshopConfig";
+import { ValidationError } from "@/config/workshopSchedule";
+import { calculateEndAndValidate } from "@/services/availability/duration";
 
 /**
  * Public-facing creation input (INV-08): English camelCase at the
@@ -42,6 +46,7 @@ export class TurnoForeignKeyError extends DomainError {
 export async function createTurno(
   db: Db,
   input: CreateTurnoInput,
+  config: Pick<WorkshopConfig, "timezone" | "operatingHours"> = workshopConfig,
 ): Promise<TurnoDTO> {
   // Resolve servicio duration for snapshot; FK will also enforce existence
   const servicioRows = await db
@@ -64,9 +69,16 @@ export async function createTurno(
     );
   }
 
-  const endDateTime = new Date(
-    input.startDateTime.getTime() + servicio.duracionMinutos * 60_000,
-  );
+  // INV-05 inclusive closure via duration helper (DI config.timezone, 400 not 409)
+  const durationResult = calculateEndAndValidate({
+    start: input.startDateTime,
+    durationMinutes: servicio.duracionMinutos,
+    config,
+  });
+  if (!durationResult.valid) {
+    throw durationResult.error ?? new ValidationError("outside operating hours");
+  }
+  const endDateTime = durationResult.end;
 
   const validated = turnoInputSchema.parse({
     clienteId: input.customerId,

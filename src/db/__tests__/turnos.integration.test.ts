@@ -102,7 +102,7 @@ describe("turnos repository (integration)", () => {
   d("snapshot: createTurno computes fechaHoraFin from servicio.durationMinutes (R3)", async () => {
     const { clienteId, vehiculoId, servicioId, servicioDuration } =
       await seedPrerequisites();
-    const start = new Date("2026-05-10T09:00:00-03:00");
+    const start = new Date("2026-05-11T09:00:00-03:00");
     const created = await createTurno(getDb(), {
       customerId: clienteId,
       vehicleId: vehiculoId,
@@ -135,7 +135,7 @@ describe("turnos repository (integration)", () => {
 
   d("stores TIMESTAMPTZ in UTC (-03:00 offset converted on write) (R1,R6)", async () => {
     const { clienteId, vehiculoId, servicioId } = await seedPrerequisites();
-    const start = new Date("2026-05-10T14:00:00-03:00"); // 17:00Z
+    const start = new Date("2026-05-11T14:00:00-03:00"); // 17:00Z Monday
     const created = await createTurno(getDb(), {
       customerId: clienteId,
       vehicleId: vehiculoId,
@@ -144,7 +144,7 @@ describe("turnos repository (integration)", () => {
       status: "CONFIRMADO",
     });
     createdTurnoIds.push(created.id);
-    expect(created.startDateTime.toISOString()).toBe("2026-05-10T17:00:00.000Z");
+    expect(created.startDateTime.toISOString()).toBe("2026-05-11T17:00:00.000Z");
 
     // raw query to verify DB stores with timezone
     const raw = await getPool().query<{ fecha_hora_inicio: Date }>(
@@ -152,7 +152,7 @@ describe("turnos repository (integration)", () => {
       [created.id],
     );
     expect(raw.rows[0]!.fecha_hora_inicio.toISOString()).toBe(
-      "2026-05-10T17:00:00.000Z",
+      "2026-05-11T17:00:00.000Z",
     );
   });
 

@@ -233,38 +233,35 @@ describe("slotGenerator — inclusive boundary and edges", () => {
   });
 });
 
-describe("slotGenerator — duration validation", () => {
-  const valid = [30, 60, 90, 120] as const;
-  it.each(valid)("valid duration %i does not throw", (dur) => {
+describe("slotGenerator — duration validation delegates to duration helper", () => {
+  // Exhaustive bounds (25/29/121/65.5/NaN) covered in duration.test.ts — smoke only
+  it("valid duration 60 does not throw (delegated)", () => {
     expect(() =>
-      generateSlotsForDate({ date: MONDAY_2026_09_07, durationMinutes: dur, config: DEFAULT_CONFIG }),
+      generateSlotsForDate({ date: MONDAY_2026_09_07, durationMinutes: 60, config: DEFAULT_CONFIG }),
     ).not.toThrow();
   });
 
-  const invalid: unknown[] = [25, 29, 121, 65.5, 0, "60", NaN, Infinity, null, undefined];
-  it.each(invalid)("invalid duration %p throws ValidationError", (dur) => {
+  it("invalid duration 25 throws ValidationError via durationSchema", () => {
     expect(() =>
       generateSlotsForDate({
         date: MONDAY_2026_09_07,
-        durationMinutes: dur as number,
+        durationMinutes: 25 as number,
         config: DEFAULT_CONFIG,
       }),
     ).toThrow(ValidationError);
-    try {
-      generateSlotsForDate({
-        date: MONDAY_2026_09_07,
-        durationMinutes: dur as number,
-        config: DEFAULT_CONFIG,
-      });
-    } catch (err) {
-      expect((err as ValidationError).code).toBe("VALIDATION_ERROR");
-    }
   });
 
-  it("invalid throws with no slots returned", () => {
-    expect(() =>
-      generateSlotsForDate({ date: MONDAY_2026_09_07, durationMinutes: 25, config: DEFAULT_CONFIG }),
-    ).toThrow();
+  // Regression: delegation preserves inclusive slot counts
+  it("regression 60→12 / 90→10 / 120→8 slots via helper", () => {
+    expect(
+      generateSlotsForDate({ date: MONDAY_2026_09_07, durationMinutes: 60, config: DEFAULT_CONFIG }),
+    ).toHaveLength(12);
+    expect(
+      generateSlotsForDate({ date: MONDAY_2026_09_07, durationMinutes: 90, config: DEFAULT_CONFIG }),
+    ).toHaveLength(10);
+    expect(
+      generateSlotsForDate({ date: MONDAY_2026_09_07, durationMinutes: 120, config: DEFAULT_CONFIG }),
+    ).toHaveLength(8);
   });
 });
 

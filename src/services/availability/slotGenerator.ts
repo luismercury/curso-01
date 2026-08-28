@@ -1,10 +1,12 @@
 import "server-only";
 
-import { z } from "zod";
-
 import type { WorkshopConfig } from "@/config/workshopConfig";
 import { getOperatingIntervalsForDate, toMinutes } from "@/config/workshopSchedule";
 import { ValidationError } from "@/config/workshopSchedule";
+import {
+  calculateEndAndValidate,
+  durationSchema,
+} from "@/services/availability/duration";
 
 /** UTC slot — both dates are TIMESTAMPTZ-ready (UTC) */
 export type Slot = {
@@ -17,12 +19,8 @@ export type SlotGeneratorConfig = Pick<
   "timezone" | "slotStepMinutes" | "operatingHours"
 >;
 
-const durationSchema = z
-  .number()
-  .int()
-  .min(30)
-  .max(120)
-  .refine((v) => v % 5 === 0, { message: "durationMinutes must be divisible by 5" });
+// Re-export for backward compat — single source is src/services/availability/duration.ts
+export { durationSchema } from "@/services/availability/duration";
 
 function getBaYmd(date: Date, timeZone: string): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -121,11 +119,16 @@ export function generateSlotsForDate(args: {
   for (const interval of intervals) {
     const startMin = toMinutes(interval.start);
     const endMin = toMinutes(interval.end);
-    for (let min = startMin; min <= endMin - durationMinutes; min += args.config.slotStepMinutes) {
+    for (let min = startMin; min < endMin; min += args.config.slotStepMinutes) {
       const hhmm = toHHmm(min);
       const start = baWallTimeToUtcDate(baYmd, hhmm, args.config.timezone);
-      const end = new Date(start.getTime() + durationMinutes * 60_000);
-      slots.push({ start, end });
+      const result = calculateEndAndValidate({
+        start,
+        durationMinutes,
+        config: args.config,
+      });
+      if (!result.valid) continue;
+      slots.push({ start, end: result.end });
     }
   }
 
