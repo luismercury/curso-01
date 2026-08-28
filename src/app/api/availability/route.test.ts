@@ -392,4 +392,39 @@ describe("GET /api/availability — delegation & response", () => {
     expect(r15.length).toBeGreaterThan(r30.length);
     expect(r30.length).toBe(12);
   });
+
+  it("EC-02 fully booked 60/90 returns 200 [] without error", async () => {
+    const { generateSlotsForDate } = await import("@/services/availability/slotGenerator");
+    const cfg = workshopConfig;
+    const noon = new Date(`${MONDAY}T12:00:00.000Z`);
+    for (const dur of [60, 90] as const) {
+      getServiceByIdMock.mockResolvedValue({ ...activeDto, durationMinutes: dur });
+      const cands = generateSlotsForDate({ date: noon, durationMinutes: dur, config: cfg });
+      findActiveTurnosMock.mockResolvedValue(cands.map((c) => ({ start: c.start, end: c.end, status: "PENDIENTE" })));
+      const res = await GET(makeRequest(`http://localhost/api/availability?date=${MONDAY}&serviceId=${VALID_SERVICE_ID}`));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { date: string; availableSlots: string[]; error?: unknown };
+      expect(body.date).toBe(MONDAY);
+      expect(body.availableSlots).toEqual([]);
+      expect(body).not.toHaveProperty("error");
+      expect(res.status).not.toBe(400);
+      expect(res.status).not.toBe(404);
+    }
+  });
+
+  it("EC-02 closed Saturday returns 200 [] without error", async () => {
+    getServiceByIdMock.mockResolvedValue(activeDto);
+    findActiveTurnosMock.mockResolvedValue([]);
+    const exp = getBaDayUtcRange(SATURDAY, workshopConfig.timezone);
+    const res = await GET(makeRequest(`http://localhost/api/availability?date=${SATURDAY}&serviceId=${VALID_SERVICE_ID}`));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { date: string; availableSlots: string[]; error?: unknown };
+    expect(body.date).toBe(SATURDAY);
+    expect(body.availableSlots).toEqual([]);
+    expect(body).not.toHaveProperty("error");
+    expect(findActiveTurnosMock).toHaveBeenCalledTimes(1);
+    const rawCall = findActiveTurnosMock.mock.calls[0] as unknown as [unknown, { fromUtc: Date; toUtc: Date }];
+    const arg = rawCall[1] ?? (rawCall[0] as { fromUtc: Date; toUtc: Date });
+    expect(arg.fromUtc.toISOString()).toBe(exp.fromUtc.toISOString());
+  });
 });
