@@ -88,6 +88,57 @@ export class ServiceNotFoundError extends DomainError {
 }
 
 /**
+ * Thrown when a state transition violates RN-07 / INV-02.
+ * Maps to HTTP 409 INVALID_APPOINTMENT_STATE.
+ */
+export class InvalidAppointmentStateError extends DomainError {
+  readonly code = "INVALID_APPOINTMENT_STATE" as const;
+
+  constructor(message = "Invalid appointment state transition", options?: { cause?: unknown }) {
+    super(message);
+    this.name = "InvalidAppointmentStateError";
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
+ * Thrown when a concurrent booking collides on EXCLUDE USING gist.
+ * Maps PG 23P01 → HTTP 409 APPOINTMENT_NOT_AVAILABLE.
+ * Deferred to T-028 for atomic path, but catalogued here for repo mapping.
+ */
+export class AppointmentNotAvailableError extends DomainError {
+  readonly code = "APPOINTMENT_NOT_AVAILABLE" as const;
+
+  constructor(message = "Appointment slot not available", options?: { cause?: unknown }) {
+    super(message);
+    this.name = "AppointmentNotAvailableError";
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
+ * Thrown when an appointment lookup by id finds no row.
+ * Maps to HTTP 404 APPOINTMENT_NOT_FOUND.
+ */
+export class AppointmentNotFoundError extends DomainError {
+  readonly code = "APPOINTMENT_NOT_FOUND" as const;
+  readonly turnoId: string;
+
+  constructor(turnoId: string, options?: { cause?: unknown }) {
+    super(`No appointment exists with id "${turnoId}"`);
+    this.name = "AppointmentNotFoundError";
+    this.turnoId = turnoId;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+/**
  * Alias for backward compatibility with Spanish repository naming.
  * Prefer VehicleCustomerNotFoundError in service layer.
  */

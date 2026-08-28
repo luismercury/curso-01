@@ -32,11 +32,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Repo + Error Catalog (R6, R3-foundation)
 
-- [ ] 2.1 Extend `src/services/errors.ts` with `InvalidAppointmentStateError` + `AppointmentNotAvailableError` (DomainError, `code` 409/23P01)
-- [ ] 2.2 Extend `src/lib/http/errors.ts` with `INVALID_APPOINTMENT_STATE`, `APPOINTMENT_NOT_AVAILABLE`, `APPOINTMENT_NOT_FOUND` + `STATUS_BY_CODE` 409/404
-- [ ] 2.3 Add `updateTurnoStatus(db: DbOrTx, id, status)` to `src/db/repositories/turnos.ts` — single `update…returning`, `hasPgCode(23P01)` map
-- [ ] 2.4 Add `findTurnosPaginated(db: DbOrTx, query)` — RN-04 defaults `PENDIENTE|CONFIRMADO` + `start > now` UTC, flags `includeCancelled/Rejected`, `limit<=100` default 20, `page/offset`, `sort asc|desc`, via `toTurnoDTO`
-- [ ] 2.5 Test repo with mocked `DbOrTx`: passthrough, `23P01` map, pagination boundaries `limit:101 → VALIDATION_ERROR`
+- [x] 2.1 Extend `src/services/errors.ts` with `InvalidAppointmentStateError` + `AppointmentNotAvailableError` (DomainError, `code` 409/23P01) + `AppointmentNotFoundError` 404
+- [x] 2.2 Extend `src/lib/http/errors.ts` with `INVALID_APPOINTMENT_STATE`, `APPOINTMENT_NOT_AVAILABLE`, `APPOINTMENT_NOT_FOUND` + `STATUS_BY_CODE` 409/404
+- [x] 2.3 Add `updateTurnoStatus(db: DbOrTx, id, status)` to `src/db/repositories/turnos.ts` — single `update…returning`, `hasPgCode(23P01)` map
+- [x] 2.4 Add `findTurnosPaginated(db: DbOrTx, query)` — RN-04 defaults `PENDIENTE|CONFIRMADO` + `start > now` UTC, flags `includeCancelled/Rejected`, `limit<=100` default 20, `page/offset`, `sort asc|desc`, via `toTurnoDTO`
+- [x] 2.5 Test repo with mocked `DbOrTx`: passthrough, `23P01` map, pagination boundaries `limit:101 → VALIDATION_ERROR`
 
 ## Phase 3: Service Thin (R2,R3,R4,R5)
 
