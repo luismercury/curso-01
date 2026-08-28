@@ -5,7 +5,7 @@ import { servicios, turnos } from "@/db/schema";
 import type { TurnoDTO } from "@/db/mappers/turno";
 import { toTurnoDTO } from "@/db/mappers/turno";
 import { turnoInputSchema } from "@/db/validators/turno";
-import { DomainError, hasPgCode } from "@/lib/errors";
+import { DomainError, hasPgCode, PG_CODES } from "@/lib/errors";
 import { workshopConfig } from "@/config/workshopConfig";
 import type { WorkshopConfig } from "@/config/workshopConfig";
 import { ValidationError } from "@/config/workshopSchedule";
@@ -102,7 +102,13 @@ export async function createTurno(
     }
     return toTurnoDTO(row);
   } catch (error) {
-    if (hasPgCode(error, "23503")) {
+    if (hasPgCode(error, PG_CODES.EXCLUSION_VIOLATION)) {
+      throw new AppointmentNotAvailableError(
+        "El horario seleccionado ya no se encuentra disponible.",
+        { cause: error },
+      );
+    }
+    if (hasPgCode(error, PG_CODES.FOREIGN_KEY_VIOLATION)) {
       throw new TurnoForeignKeyError(
         "Foreign key violation creating turno (cliente/vehiculo/servicio)",
         { cause: error },
@@ -110,6 +116,41 @@ export async function createTurno(
     }
     throw error;
   }
+}
+
+/**
+ * Count active overlapping turnos WITH FOR UPDATE lock (T-028).
+ * Used INSIDE REPEATABLE READ transaction before INSERT.
+ * No shared helper with read-only path — dedicated TX helper.
+ */
+export async function countActiveOverlappingForUpdate(
+  tx: import("@/db").Tx,
+  range: { fromUtc: Date; toUtc: Date },
+): Promise<number> {
+  if (
+    !(range.fromUtc instanceof Date) ||
+    Number.isNaN(range.fromUtc.getTime()) ||
+    !(range.toUtc instanceof Date) ||
+    Number.isNaN(range.toUtc.getTime())
+  ) {
+    throw new ValidationError("invalid range Date");
+  }
+  const result = await tx.execute(
+    sql`SELECT count(*)::int AS cnt FROM turnos WHERE tstzrange(fecha_hora_inicio, fecha_hora_fin) && tstzrange(${range.fromUtc}, ${range.toUtc}) AND estado IN ('PENDIENTE','CONFIRMADO') FOR UPDATE`,
+  );
+  const rows = (result as unknown as { rows?: Array<{ cnt: number | string }> }).rows ??
+    (result as unknown as Array<{ cnt: number | string }>);
+  const row = Array.isArray(rows) ? rows[0] : (rows as unknown as { cnt: number | string } | undefined);
+  // Handle drizzle returning array vs {rows}
+  if (Array.isArray(result) && result.length > 0) {
+    const first = (result as unknown as Array<{ cnt: number | string }>)[0];
+    if (first) return Number(first.cnt);
+  }
+  if (row) return Number(row.cnt);
+  // Fallback: result.rows
+  const maybeRows = (result as unknown as { rows?: Array<{ cnt: number | string }> }).rows;
+  if (maybeRows && maybeRows[0]) return Number(maybeRows[0].cnt);
+  return 0;
 }
 
 export async function findTurnoById(
@@ -158,8 +199,8 @@ export async function updateTurnoStatus(
     if (error instanceof AppointmentNotFoundError) {
       throw error;
     }
-    if (hasPgCode(error, "23P01")) {
-      throw new AppointmentNotAvailableError("Appointment slot not available", {
+    if (hasPgCode(error, PG_CODES.EXCLUSION_VIOLATION)) {
+      throw new AppointmentNotAvailableError("El horario seleccionado ya no se encuentra disponible.", {
         cause: error,
       });
     }
