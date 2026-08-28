@@ -40,15 +40,15 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Service Thin (R2,R3,R4,R5)
 
-- [ ] 3.1 Create `src/services/appointmentService.ts` with `AppointmentServiceDeps{db,config,now?}`; `createAppointment` validates schema, `servicio.active`, ownership, `calculateEndAndValidate` + `fechaHoraFin<=finIntervaloOperativo` inclusive, UTC via `config.timezone`, `TODO T-028`
-- [ ] 3.2 Implement `confirmAppointment`/`rejectAppointment`: load, `canTransition(PENDIENTE→CONFIRMADO|RECHAZADO,ADMIN)`, `now<start` UTC `getTime()`, `updateTurnoStatus` → `TurnoDTO`
-- [ ] 3.3 Implement `cancelAppointment`: `canTransition(PEND→CANCEL,CONF→CANCEL,owner/ADMIN)`, ownership check first, `now<start` borders `08:59 allow / 09:00:00 reject`, `INVALID_APPOINTMENT_STATE "El turno ya comenzó"`
-- [ ] 3.4 Implement `getAppointmentById`/`listAppointments`: ownership (CLIENTE own, ADMIN all), `APPOINTMENT_NOT_FOUND` 404, delegates to `findTurnosPaginated`, camelCase `TurnoDTO` no snake leak
-- [ ] 3.5 Write `src/services/__tests__/appointmentService.test.ts` with `vi.mock` repo + `vi.useFakeTimers()`: R1 role, R2 inactive/foreign/close-crossing, R3 flags+pagination, R4 borders, R5 leak, R6 shapes; no `APPOINTMENT_NOT_AVAILABLE` in skeleton
+- [x] 3.1 Create `src/services/appointmentService.ts` with `AppointmentServiceDeps{db,config,now?}`; `createAppointment` validates schema, `servicio.active`, ownership, `calculateEndAndValidate` + `fechaHoraFin<=finIntervaloOperativo` inclusive, UTC via `config.timezone`, `TODO T-028`
+- [x] 3.2 Implement `confirmAppointment`/`rejectAppointment`: load, `canTransition(PENDIENTE→CONFIRMADO|RECHAZADO,ADMIN)`, `now<start` UTC `getTime()`, `updateTurnoStatus` → `TurnoDTO`
+- [x] 3.3 Implement `cancelAppointment`: `canTransition(PEND→CANCEL,CONF→CANCEL,owner/ADMIN)`, ownership check first, `now<start` borders `08:59 allow / 09:00:00 reject`, `INVALID_APPOINTMENT_STATE "El turno ya comenzó"`
+- [x] 3.4 Implement `getAppointmentById`/`listAppointments`: ownership (CLIENTE own, ADMIN all), `APPOINTMENT_NOT_FOUND` 404, delegates to `findTurnosPaginated`, camelCase `TurnoDTO` no snake leak
+- [x] 3.5 Write `src/services/__tests__/appointmentService.test.ts` with `vi.mock` repo + `vi.useFakeTimers()`: R1 role, R2 inactive/foreign/close-crossing, R3 flags+pagination, R4 borders, R5 leak, R6 shapes; no `APPOINTMENT_NOT_AVAILABLE` in skeleton
 
 ## Phase 4: Verification
 
-- [ ] 4.1 `npx tsc --noEmit` zero errors
-- [ ] 4.2 `vitest` pure suites green: domain + service
-- [ ] 4.3 Grep guards: `COMPLETADO` absent except negative test; `FOR UPDATE|REPEATABLE READ` empty in T-027 diff; `toTurnoDTO` present (INV-08)
-- [ ] 4.4 Verify mapping R1→1.1/1.2/3.2, R2→3.1, R3→2.4/3.4, R4→3.3, R5→3.4, R6→2.1/2.2/3.5
+- [x] 4.1 `npx tsc --noEmit` zero errors
+- [x] 4.2 `vitest` pure suites green: domain + service
+- [x] 4.3 Grep guards: `COMPLETADO` absent except negative test; `FOR UPDATE|REPEATABLE READ` empty in T-027 diff; `toTurnoDTO` present (INV-08)
+- [x] 4.4 Verify mapping R1→1.1/1.2/3.2, R2→3.1, R3→2.4/3.4, R4→3.3, R5→3.4, R6→2.1/2.2/3.5
