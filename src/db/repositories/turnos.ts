@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
-import type { Db } from "@/db";
+import type { Db, DbOrTx } from "@/db";
 import { servicios, turnos } from "@/db/schema";
 import type { TurnoDTO } from "@/db/mappers/turno";
 import { toTurnoDTO } from "@/db/mappers/turno";
@@ -10,6 +10,8 @@ import { workshopConfig } from "@/config/workshopConfig";
 import type { WorkshopConfig } from "@/config/workshopConfig";
 import { ValidationError } from "@/config/workshopSchedule";
 import { calculateEndAndValidate } from "@/services/availability/duration";
+import { ACTIVE_STATUSES } from "@/services/availability/overlap";
+import type { ExistingEntry } from "@/services/availability/overlap";
 
 /**
  * Public-facing creation input (INV-08): English camelCase at the
@@ -123,4 +125,38 @@ export async function findTurnosByClienteId(
     .from(turnos)
     .where(eq(turnos.clienteId, customerId));
   return rows.map(toTurnoDTO);
+}
+
+/**
+ * Bulk-fetch adapter for availability (T-024).
+ * Queries WHERE tstzrange(fecha_hora_inicio, fecha_hora_fin) && tstzrange($1,$2)
+ * AND estado IN ('PENDIENTE','CONFIRMADO') — count < capacityPerSlot half-open.
+ * Returns ExistingEntry[] mapped from TurnoRow preserving UTC getTime semantics.
+ */
+export async function findActiveTurnosByDateRange(
+  db: DbOrTx,
+  range: { fromUtc: Date; toUtc: Date },
+): Promise<ExistingEntry[]> {
+  if (
+    !(range.fromUtc instanceof Date) ||
+    Number.isNaN(range.fromUtc.getTime()) ||
+    !(range.toUtc instanceof Date) ||
+    Number.isNaN(range.toUtc.getTime())
+  ) {
+    throw new ValidationError("invalid range Date");
+  }
+  const rows = await db
+    .select()
+    .from(turnos)
+    .where(
+      sql`tstzrange(${turnos.fechaHoraInicio}, ${turnos.fechaHoraFin}) && tstzrange(${range.fromUtc}, ${range.toUtc}) AND ${turnos.estado} IN (${sql.join(
+        ACTIVE_STATUSES.map((s) => sql`${s}`),
+        sql`, `,
+      )})`,
+    );
+  return rows.map((row) => ({
+    start: row.fechaHoraInicio,
+    end: row.fechaHoraFin,
+    status: row.estado,
+  }));
 }
