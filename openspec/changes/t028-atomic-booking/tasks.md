@@ -41,16 +41,16 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Route POST /api/appointments (R6)
 
-- [ ] 3.1 Create `src/app/api/appointments/route.ts` — Zod strict `{vehicleId,serviceId,startDateTime}` + `requireAuth`→401 (R6)
-- [ ] 3.2 Call `createAppointment({vehicleId,serviceId,startDateTime,authUser})` with DI `db`+`workshopConfig` (R1,R4)
-- [ ] 3.3 Map `{error:{code,message}}`: `AppointmentNotAvailableError`→409, `InvalidServiceError`→400, `ForbiddenError`→403, `ValidationError`→400; `201→TurnoDTO` (R6)
-- [ ] 3.4 Return `NextResponse.json(dto,{status:201})` via `toTurnoDTO` — no snake_case leak (INV-08)
+- [x] 3.1 Create `src/app/api/appointments/route.ts` — Zod strict `{vehicleId,serviceId,startDateTime}` + `requireAuth`→401 (R6)
+- [x] 3.2 Call `createAppointment({vehicleId,serviceId,startDateTime,authUser})` with DI `db`+`workshopConfig` (R1,R4)
+- [x] 3.3 Map `{error:{code,message}}`: `AppointmentNotAvailableError`→409, `InvalidServiceError`→400, `ForbiddenError`→403, `ValidationError`→400; `201→TurnoDTO` (R6)
+- [x] 3.4 Return `NextResponse.json(dto,{status:201})` via `toTurnoDTO` — no snake_case leak (INV-08)
 
 ## Phase 4: Verification (R1-R6)
 
-- [ ] 4.1 Mocked TX units in `src/services/__tests__/appointmentService.test.ts`: `cnt>=cap→409`, `cnt<cap→201`, synthetic `23P01`→409, `23514/23503`≠409 (R1,R2,R6)
-- [ ] 4.2 H-13 order test: non-owner `ForbiddenError` before `countActiveOverlappingForUpdate`; spy verifies no count query (R5)
-- [ ] 4.3 400 vs 409: `11:30+90>12:00→400` no FOR UPDATE; overlap `09:30 vs 09:00-10:00→409` (R5,R6)
-- [ ] 4.4 Capacity DI: `capacity=2,cnt=1→201` proves not hardcoded `>=1` (R1)
-- [ ] 4.5 Integration `tests/integration/appointmentConcurrency.test.ts` `skipIf(!DATABASE_URL)`: same slot `Promise.allSettled`→1×201+1×409 count 1; adjacent `10-11 vs 11-12→both 201` half-open (R3)
-- [ ] 4.6 `npx tsc --noEmit` zero errors + `pnpm vitest run` green; gated skip verified without `DATABASE_URL`
+- [x] 4.1 Mocked TX units in `src/services/__tests__/appointmentService.test.ts`: `cnt>=cap→409`, `cnt<cap→201`, synthetic `23P01`→409, `23514/23503`≠409 (R1,R2,R6)
+- [x] 4.2 H-13 order test: non-owner `ForbiddenError` before `countActiveOverlappingForUpdate`; spy verifies no count query (R5)
+- [x] 4.3 400 vs 409: `11:30+90>12:00→400` no FOR UPDATE; overlap `09:30 vs 09:00-10:00→409` (R5,R6)
+- [x] 4.4 Capacity DI: `capacity=2,cnt=1→201` proves not hardcoded `>=1` (R1)
+- [x] 4.5 Integration `tests/integration/appointmentConcurrency.test.ts` `skipIf(!DATABASE_URL)`: same slot `Promise.allSettled`→1×201+1×409 count 1; adjacent `10-11 vs 11-12→both 201` half-open (R3)
+- [x] 4.6 `npx tsc --noEmit` zero errors + `pnpm vitest run` green; gated skip verified without `DATABASE_URL`

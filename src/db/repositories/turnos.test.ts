@@ -211,16 +211,21 @@ describe("findTurnosPaginated — RN-04 defaults + pagination boundaries", () =>
     ).resolves.toBeDefined();
   });
 
-  it("no FOR UPDATE / REPEATABLE READ in executable code (INV-04 deferred to T-028)", async () => {
-    // Guard: executable code must not introduce concurrency — comments mentioning
-    // the deferred T-028 terms are allowed, but stripped code must be clean.
+  it("T-028: FOR UPDATE in countActiveOverlappingForUpdate only; REPEATABLE READ lives in service (INV-04)", async () => {
+    // T-028 promotes atomic booking: countActiveOverlappingForUpdate MUST use FOR UPDATE,
+    // while read-only findActiveTurnosByDateRange must NOT. REPEATABLE READ stays in
+    // appointmentService.ts via SET TRANSACTION, not in this repo file.
     const fs = await import("node:fs");
     const content = fs.readFileSync("src/db/repositories/turnos.ts", "utf8");
     const stripped = content
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/.*$/gm, "");
-    expect(stripped).not.toMatch(/FOR UPDATE/i);
+    expect(stripped).toMatch(/FOR UPDATE/i);
     expect(stripped).not.toMatch(/REPEATABLE READ/i);
+    expect(content).toContain("countActiveOverlappingForUpdate");
     expect(content).toContain("toTurnoDTO");
+    // Ensure dedicated helper owns the lock, not the read-only path
+    const countHelper = (content.match(/countActiveOverlappingForUpdate/g) ?? []).length;
+    expect(countHelper).toBeGreaterThanOrEqual(1);
   });
 });
