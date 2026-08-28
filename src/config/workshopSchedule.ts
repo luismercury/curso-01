@@ -26,7 +26,7 @@ export class ValidationError extends Error {
   }
 }
 
-function toMinutes(t: string): number {
+export function toMinutes(t: string): number {
   const [hStr, mStr] = t.split(":");
   const h = Number(hStr);
   const m = Number(mStr);
