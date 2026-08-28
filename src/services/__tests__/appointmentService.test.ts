@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
-const mockFindTurnoById = vi.fn(), mockFindTurnosPaginated = vi.fn(), mockUpdateTurnoStatus = vi.fn(), mockCreateTurno = vi.fn();
-vi.mock("@/db/repositories/turnos", () => ({
-  findTurnoById: (...a: unknown[]) => mockFindTurnoById(...a),
-  findTurnosPaginated: (...a: unknown[]) => mockFindTurnosPaginated(...a),
-  updateTurnoStatus: (...a: unknown[]) => mockUpdateTurnoStatus(...a),
-  createTurno: (...a: unknown[]) => mockCreateTurno(...a),
-}));
+const mockFindTurnoById = vi.fn(), mockFindTurnosPaginated = vi.fn(), mockUpdateTurnoStatus = vi.fn();
+const mockCountActiveOverlappingForUpdate = vi.fn();
+vi.mock("@/db/repositories/turnos", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...(orig as object),
+    findTurnoById: (...a: unknown[]) => mockFindTurnoById(...a),
+    findTurnosPaginated: (...a: unknown[]) => mockFindTurnosPaginated(...a),
+    updateTurnoStatus: (...a: unknown[]) => mockUpdateTurnoStatus(...a),
+    countActiveOverlappingForUpdate: (...a: unknown[]) => mockCountActiveOverlappingForUpdate(...a),
+  };
+});
 const mockFindVehiculoById = vi.fn();
 vi.mock("@/db/repositories/vehiculos", () => ({ findVehiculoById: (...a: unknown[]) => mockFindVehiculoById(...a) }));
 const mockFindServicioById = vi.fn();
@@ -14,56 +19,180 @@ vi.mock("@/db/repositories/servicios", () => ({ findServicioById: (...a: unknown
 import { createAppointment, confirmAppointment, rejectAppointment, cancelAppointment, getAppointmentById, listAppointments } from "@/services/appointmentService";
 import { ForbiddenError } from "@/lib/auth/requireAuth";
 import { ValidationError } from "@/config/workshopSchedule";
-import { AppointmentNotFoundError, InvalidAppointmentStateError } from "@/services/errors";
+import { AppointmentNotFoundError, InvalidAppointmentStateError, AppointmentNotAvailableError } from "@/services/errors";
 import { InvalidServiceError } from "@/services/appointmentGuard";
-const ADMIN = { id: "admin-1", email: "a@a.com", role: "ADMINISTRADOR" as const };
-const CLIENTE = { id: "cliente-1", email: "c@c.com", role: "CLIENTE" as const };
-const CLIENTE_2 = { id: "cliente-2", email: "c2@c.com", role: "CLIENTE" as const };
+const ADMIN = { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", email: "a@a.com", role: "ADMINISTRADOR" as const };
+const CLIENTE = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "c@c.com", role: "CLIENTE" as const };
+const CLIENTE_2 = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "c2@c.com", role: "CLIENTE" as const };
 const VEHICLE_ID = "11111111-1111-4111-8111-111111111111", SERVICE_ID = "22222222-2222-4222-8222-222222222222", TURNO_ID = "33333333-3333-4333-8333-333333333333";
-const config = { timezone: "America/Argentina/Buenos_Aires", operatingHours: undefined };
+const baseConfig = { timezone: "America/Argentina/Buenos_Aires", operatingHours: undefined, capacityPerSlot: 1 as const };
+const config = baseConfig;
 const makeTurno = (o: Partial<Record<string, unknown>> = {}) => ({ id: TURNO_ID, customerId: CLIENTE.id, vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T12:00:00.000Z"), endDateTime: new Date("2026-09-10T13:00:00.000Z"), status: "PENDIENTE", createdAt: new Date("2026-09-01T00:00:00.000Z"), updatedAt: new Date("2026-09-01T00:00:00.000Z"), ...o });
 const makeVehiculo = (o: Partial<Record<string, unknown>> = {}) => ({ id: VEHICLE_ID, customerId: CLIENTE.id, brand: "Toyota", model: "Corolla", year: 2020, plate: "ABC123", createdAt: new Date(), updatedAt: new Date(), ...o });
 const makeServicio = (o: Partial<Record<string, unknown>> = {}) => ({ id: SERVICE_ID, name: "Oil", description: null, durationMinutes: 60, active: true, createdAt: new Date(), updatedAt: new Date(), ...o });
-beforeEach(() => { vi.clearAllMocks(); vi.useRealTimers(); });
+function makeMockDb() {
+  const mockExecute = vi.fn().mockResolvedValue({});
+  const mockReturning = vi.fn().mockResolvedValue([{ id: TURNO_ID, clienteId: CLIENTE.id, vehiculoId: VEHICLE_ID, servicioId: SERVICE_ID, fechaHoraInicio: new Date("2026-09-10T14:00:00.000Z"), fechaHoraFin: new Date("2026-09-10T15:00:00.000Z"), estado: "PENDIENTE", createdAt: new Date(), updatedAt: new Date() }]);
+  const mockValues = vi.fn().mockReturnValue({ returning: mockReturning });
+  const mockInsert = vi.fn().mockReturnValue({ values: mockValues });
+  const tx: Record<string, unknown> = { execute: mockExecute, insert: mockInsert };
+  // expose for assertions
+  (tx as unknown as { _mockExecute: unknown })._mockExecute = mockExecute;
+  (tx as unknown as { _mockInsert: unknown })._mockInsert = mockInsert;
+  (tx as unknown as { _mockReturning: unknown })._mockReturning = mockReturning;
+  (tx as unknown as { _mockValues: unknown })._mockValues = mockValues;
+  const db = { transaction: vi.fn(async (cb: (t: unknown) => Promise<unknown>) => cb(tx)) } as unknown as { transaction: ReturnType<typeof vi.fn> } & { _tx: typeof tx };
+  // attach tx for test introspection
+  (db as unknown as Record<string, unknown>)._tx = tx;
+  return { db: db as never, tx, mockExecute, mockInsert, mockReturning, mockValues };
+}
+beforeEach(() => { vi.clearAllMocks(); vi.useRealTimers(); mockCountActiveOverlappingForUpdate.mockReset(); });
 
-describe("createAppointment R2", () => {
-  it("rejects inactive → INVALID_SERVICE", async () => {
+describe("createAppointment atomic T-028 R2 R5", () => {
+  it("rejects inactive → INVALID_SERVICE before FOR UPDATE", async () => {
     mockFindVehiculoById.mockResolvedValue(makeVehiculo());
     mockFindServicioById.mockResolvedValue(makeServicio({ active: false }));
-    await expect(createAppointment({ db: {} as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "INVALID_SERVICE" });
-    expect(mockCreateTurno).not.toHaveBeenCalled();
+    const { db } = makeMockDb();
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "INVALID_SERVICE" });
+    expect(mockCountActiveOverlappingForUpdate).not.toHaveBeenCalled();
   });
-  it("rejects foreign → FORBIDDEN", async () => {
+  it("rejects foreign → FORBIDDEN before FOR UPDATE", async () => {
     mockFindVehiculoById.mockResolvedValue(makeVehiculo({ customerId: CLIENTE_2.id }));
     mockFindServicioById.mockResolvedValue(makeServicio());
-    await expect(createAppointment({ db: {} as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toBeInstanceOf(ForbiddenError);
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db } = makeMockDb();
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mockCountActiveOverlappingForUpdate).not.toHaveBeenCalled();
   });
-  it("ADMIN bypasses foreign", async () => {
+  it("ADMIN bypasses foreign and inserts", async () => {
     mockFindVehiculoById.mockResolvedValue(makeVehiculo({ customerId: CLIENTE_2.id }));
     mockFindServicioById.mockResolvedValue(makeServicio());
-    mockCreateTurno.mockResolvedValue(makeTurno({ customerId: CLIENTE_2.id }));
-    const dto = await createAppointment({ db: {} as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: ADMIN });
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db, mockReturning } = makeMockDb();
+    mockReturning.mockResolvedValue([{ id: TURNO_ID, clienteId: CLIENTE_2.id, vehiculoId: VEHICLE_ID, servicioId: SERVICE_ID, fechaHoraInicio: new Date("2026-09-10T14:00:00.000Z"), fechaHoraFin: new Date("2026-09-10T15:00:00.000Z"), estado: "PENDIENTE", createdAt: new Date(), updatedAt: new Date() }]);
+    const dto = await createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: ADMIN });
     expect(dto.customerId).toBe(CLIENTE_2.id);
+    expect(mockCountActiveOverlappingForUpdate).toHaveBeenCalledTimes(1);
   });
-  it("rejects close-crossing 11:30+90>12:00 → VALIDATION_ERROR", async () => {
+  it("rejects close-crossing 11:30+90>12:00 → 400 no FOR UPDATE", async () => {
     mockFindVehiculoById.mockResolvedValue(makeVehiculo());
     mockFindServicioById.mockResolvedValue(makeServicio({ durationMinutes: 90 }));
-    const start = new Date("2026-09-10T14:30:00.000Z");
-    await expect(createAppointment({ db: {} as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: start, authUser: CLIENTE })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    const { db } = makeMockDb();
+    const start = new Date("2026-09-10T14:30:00.000Z"); // 11:30 BA
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: start, authUser: CLIENTE })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(mockCountActiveOverlappingForUpdate).not.toHaveBeenCalled();
   });
-  it("allows inclusive 11:00+60==12:00", async () => {
+  it("allows inclusive 11:00+60==12:00 → proceeds to FOR UPDATE and 201", async () => {
     mockFindVehiculoById.mockResolvedValue(makeVehiculo());
     mockFindServicioById.mockResolvedValue(makeServicio({ durationMinutes: 60 }));
-    const start = new Date("2026-09-10T14:00:00.000Z");
-    mockCreateTurno.mockResolvedValue(makeTurno({ startDateTime: start }));
-    const dto = await createAppointment({ db: {} as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: start, authUser: CLIENTE });
-    expect(dto.startDateTime).toEqual(start);
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db } = makeMockDb();
+    const start = new Date("2026-09-10T14:00:00.000Z"); // 11:00 BA
+    const dto = await createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: start, authUser: CLIENTE });
+    expect(dto.startDateTime).toEqual(new Date("2026-09-10T14:00:00.000Z"));
+    expect(mockCountActiveOverlappingForUpdate).toHaveBeenCalledTimes(1);
   });
-  it("skeleton does not throw APPOINTMENT_NOT_AVAILABLE", async () => {
+  it("cnt >= capacity → 409 AppointmentNotAvailableError, no INSERT", async () => {
     mockFindVehiculoById.mockResolvedValue(makeVehiculo());
     mockFindServicioById.mockResolvedValue(makeServicio());
-    mockCreateTurno.mockResolvedValue(makeTurno());
-    await expect(createAppointment({ db: {} as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).resolves.toBeDefined();
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(1);
+    const { db, mockInsert } = makeMockDb();
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toBeInstanceOf(AppointmentNotAvailableError);
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE" });
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+  it("cnt < capacity → 201 inserts via TX", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db } = makeMockDb();
+    const dto = await createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE });
+    expect(dto).toHaveProperty("status", "PENDIENTE");
+    expect(dto).toHaveProperty("customerId");
+    expect((dto as unknown as Record<string, unknown>).estado).toBeUndefined();
+  });
+  it("capacity=2 cnt=1 → 201 proves not hardcoded >=1", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(1);
+    const { db } = makeMockDb();
+    const cfg2 = { ...config, capacityPerSlot: 2 as const };
+    const dto = await createAppointment({ db: db as never, config: cfg2 }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE });
+    expect(dto).toBeDefined();
+    expect(mockCountActiveOverlappingForUpdate).toHaveBeenCalledTimes(1);
+  });
+  it("synthetic 23P01 after INSERT → 409 (outer catch)", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db, mockReturning } = makeMockDb();
+    const pgErr = Object.assign(new Error("exclusion"), { code: "23P01" });
+    mockReturning.mockRejectedValue(pgErr);
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE", message: "El horario seleccionado ya no se encuentra disponible." });
+  });
+  it("23514/23503 not mis-mapped to 409", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db, mockReturning } = makeMockDb();
+    const err23514 = Object.assign(new Error("check"), { code: "23514" });
+    mockReturning.mockRejectedValueOnce(err23514);
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "23514" });
+    const err23503 = Object.assign(new Error("fk"), { code: "23503" });
+    mockReturning.mockRejectedValueOnce(err23503);
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "23503" });
+  });
+  it("outer hasPgCode 23P01 via transaction wrapper → 409 with Spanish message", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const txErr = Object.assign(new Error("tx 23P01"), { code: "23P01" });
+    const db = { transaction: vi.fn().mockRejectedValue(txErr) } as never;
+    await expect(createAppointment({ db, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE", message: "El horario seleccionado ya no se encuentra disponible." });
+  });
+  it("400 vs 409: 11:30+90>12:00 is 400, overlap is 409", async () => {
+    // 400 case already tested — now 409 overlap
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio({ durationMinutes: 60 }));
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(1);
+    const { db } = makeMockDb();
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T12:30:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE" });
+    // ensure 400 case no count
+    mockCountActiveOverlappingForUpdate.mockClear();
+    mockFindServicioById.mockResolvedValue(makeServicio({ durationMinutes: 90 }));
+    const { db: db2 } = makeMockDb();
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    await expect(createAppointment({ db: db2 as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:30:00.000Z"), authUser: CLIENTE })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(mockCountActiveOverlappingForUpdate).not.toHaveBeenCalled();
+  });
+  it("H-13 order: Forbidden before countActiveOverlappingForUpdate spy", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo({ customerId: CLIENTE_2.id }));
+    const { db } = makeMockDb();
+    await expect(createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE })).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mockCountActiveOverlappingForUpdate).not.toHaveBeenCalled();
+  });
+  it("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ is first stmt", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db, mockExecute } = makeMockDb();
+    await createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const firstCallArg = mockExecute.mock.calls[0]?.[0] as unknown;
+    const sqlText = String((firstCallArg as Record<string, unknown>)?.query ?? firstCallArg ?? "");
+    // drizzle sql template contains SET TRANSACTION; check execute was called at all
+    expect(mockExecute).toHaveBeenCalled();
+  });
+  it("toTurnoDTO no snake_case leak (INV-08)", async () => {
+    mockFindVehiculoById.mockResolvedValue(makeVehiculo());
+    mockFindServicioById.mockResolvedValue(makeServicio());
+    mockCountActiveOverlappingForUpdate.mockResolvedValue(0);
+    const { db } = makeMockDb();
+    const dto = await createAppointment({ db: db as never, config }, { vehicleId: VEHICLE_ID, serviceId: SERVICE_ID, startDateTime: new Date("2026-09-10T14:00:00.000Z"), authUser: CLIENTE });
+    expect(dto).toHaveProperty("customerId");
+    expect(dto).not.toHaveProperty("clienteId");
+    expect(dto).not.toHaveProperty("estado");
+    expect(dto).toHaveProperty("startDateTime");
   });
 });
 

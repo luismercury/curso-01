@@ -1,0 +1,266 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
+vi.mock("@/db", () => ({ db: {} }));
+
+const createAppointmentMock = vi.fn();
+vi.mock("@/services/appointmentService", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/services/appointmentService")
+  >("@/services/appointmentService");
+  return {
+    ...actual,
+    createAppointment: (...args: unknown[]) =>
+      createAppointmentMock(...(args as never[])),
+  };
+});
+
+const requireAuthMock = vi.fn();
+vi.mock("@/lib/auth/requireAuth", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/auth/requireAuth")
+  >("@/lib/auth/requireAuth");
+  return {
+    ...actual,
+    requireAuth: (...args: unknown[]) => requireAuthMock(...(args as never[])),
+  };
+});
+
+import {
+  ForbiddenError,
+  UnauthorizedError,
+} from "@/lib/auth/requireAuth";
+import { ValidationError } from "@/config/workshopSchedule";
+import { InvalidServiceError } from "@/services/appointmentGuard";
+import { AppointmentNotAvailableError } from "@/services/errors";
+import { POST } from "@/app/api/appointments/route";
+
+const CLIENTE = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "c@c.com", role: "CLIENTE" as const };
+const VEHICLE_ID = "11111111-1111-4111-8111-111111111111";
+const SERVICE_ID = "22222222-2222-4222-8222-222222222222";
+
+function makeRequest(body: unknown, rawBody?: string): Request {
+  if (rawBody !== undefined) {
+    return new Request("http://localhost/api/appointments", {
+      method: "POST",
+      body: rawBody,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  return new Request("http://localhost/api/appointments", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+}
+
+const turnoDTO = {
+  id: "33333333-3333-4333-8333-333333333333",
+  customerId: CLIENTE.id,
+  vehicleId: VEHICLE_ID,
+  serviceId: SERVICE_ID,
+  startDateTime: new Date("2026-09-10T13:00:00.000Z"),
+  endDateTime: new Date("2026-09-10T14:00:00.000Z"),
+  status: "PENDIENTE",
+  createdAt: new Date("2026-09-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-09-01T00:00:00.000Z"),
+};
+
+describe("POST /api/appointments — thin route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireAuthMock.mockResolvedValue(CLIENTE);
+    createAppointmentMock.mockResolvedValue(turnoDTO);
+  });
+
+  it("201 returns TurnoDTO camelCase on valid ISO with timezone", async () => {
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as typeof turnoDTO & Record<string, unknown>;
+    expect(json.id).toBe(turnoDTO.id);
+    expect(json.customerId).toBe(turnoDTO.customerId);
+    expect(json).toHaveProperty("startDateTime");
+    expect(json).toHaveProperty("endDateTime");
+    expect(json).toHaveProperty("status");
+    expect(json).not.toHaveProperty("estado");
+    expect(json).not.toHaveProperty("fecha_hora_inicio");
+    expect(createAppointmentMock).toHaveBeenCalledTimes(1);
+    const calledArgs = createAppointmentMock.mock.calls[0] as unknown as [
+      { config: { capacityPerSlot: number; timezone: string } },
+      { vehicleId: string; serviceId: string; startDateTime: Date },
+    ];
+    // DI config carries capacityPerSlot and timezone (INV-01/06)
+    expect(calledArgs[0].config).toHaveProperty("capacityPerSlot");
+    expect(calledArgs[0].config).toHaveProperty("timezone");
+    // UTC conversion: BA 10:00-03:00 => 13:00Z
+    expect(calledArgs[1].startDateTime.toISOString()).toBe("2026-09-10T13:00:00.000Z");
+  });
+
+  it("201 with Z timezone also accepted", async () => {
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T13:00:00.000Z",
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("401 UNAUTHORIZED when requireAuth throws", async () => {
+    requireAuthMock.mockRejectedValue(new UnauthorizedError("Missing token"));
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("UNAUTHORIZED");
+    expect(createAppointmentMock).not.toHaveBeenCalled();
+  });
+
+  it("400 VALIDATION_ERROR on Zod strict failure — missing field", async () => {
+    const res = await POST(
+      makeRequest({ vehicleId: VEHICLE_ID, serviceId: SERVICE_ID } as never),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; issues: unknown[] } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(Array.isArray(body.error.issues)).toBe(true);
+    expect(createAppointmentMock).not.toHaveBeenCalled();
+  });
+
+  it("400 on unknown strict field", async () => {
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+        extra: "nope",
+      } as never),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(createAppointmentMock).not.toHaveBeenCalled();
+  });
+
+  it("400 when startDateTime without timezone (naive) — INV-06", async () => {
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(createAppointmentMock).not.toHaveBeenCalled();
+  });
+
+  it("400 on invalid JSON", async () => {
+    const res = await POST(makeRequest(null, "not-json"));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(createAppointmentMock).not.toHaveBeenCalled();
+  });
+
+  it("400 on invalid uuid", async () => {
+    const res = await POST(
+      makeRequest({
+        vehicleId: "not-uuid",
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("409 APPOINTMENT_NOT_AVAILABLE mapped from service", async () => {
+    createAppointmentMock.mockRejectedValue(
+      new AppointmentNotAvailableError("El horario seleccionado ya no se encuentra disponible."),
+    );
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("APPOINTMENT_NOT_AVAILABLE");
+    expect(body.error.message).toBe("El horario seleccionado ya no se encuentra disponible.");
+  });
+
+  it("400 INVALID_SERVICE mapped", async () => {
+    createAppointmentMock.mockRejectedValue(new InvalidServiceError('Servicio "X" is not active'));
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("INVALID_SERVICE");
+  });
+
+  it("400 VALIDATION_ERROR mapped for ValidationError (e.g., 11:30+90>12:00)", async () => {
+    createAppointmentMock.mockRejectedValue(new ValidationError("outside operating hours"));
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T11:30:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("403 FORBIDDEN mapped", async () => {
+    createAppointmentMock.mockRejectedValue(new ForbiddenError("Not owner"));
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("no snake_case leak in 201 DTO (INV-08)", async () => {
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json).not.toHaveProperty("cliente_id");
+    expect(json).not.toHaveProperty("vehiculo_id");
+    expect(json).not.toHaveProperty("servicio_id");
+    expect(json).not.toHaveProperty("fecha_hora_inicio");
+    expect(json).not.toHaveProperty("estado");
+  });
+});

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import type { Db } from "@/db";
+import type { Db, DbOrTx } from "@/db";
 import { servicios } from "@/db/schema";
 import type { ServicioDTO } from "@/db/mappers/servicio";
 import { toServicioDTO } from "@/db/mappers/servicio";
@@ -62,7 +62,7 @@ export async function createServicio(
 }
 
 export async function findServicioById(
-  db: Db,
+  db: DbOrTx,
   id: string,
 ): Promise<ServicioDTO | null> {
   const rows = await db
