@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/db", () => ({ db: {} }));
 
 const createAppointmentMock = vi.fn();
+const listAppointmentsMock = vi.fn();
 vi.mock("@/services/appointmentService", async () => {
   const actual = await vi.importActual<
     typeof import("@/services/appointmentService")
@@ -13,6 +14,8 @@ vi.mock("@/services/appointmentService", async () => {
     ...actual,
     createAppointment: (...args: unknown[]) =>
       createAppointmentMock(...(args as never[])),
+    listAppointments: (...args: unknown[]) =>
+      listAppointmentsMock(...(args as never[])),
   };
 });
 
@@ -34,7 +37,7 @@ import {
 import { ValidationError } from "@/config/workshopSchedule";
 import { InvalidServiceError } from "@/services/appointmentGuard";
 import { AppointmentNotAvailableError } from "@/services/errors";
-import { POST } from "@/app/api/appointments/route";
+import { GET, POST } from "@/app/api/appointments/route";
 
 const CLIENTE = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", email: "c@c.com", role: "CLIENTE" as const };
 const VEHICLE_ID = "11111111-1111-4111-8111-111111111111";
@@ -262,5 +265,45 @@ describe("POST /api/appointments — thin route", () => {
     expect(json).not.toHaveProperty("servicio_id");
     expect(json).not.toHaveProperty("fecha_hora_inicio");
     expect(json).not.toHaveProperty("estado");
+  });
+});
+
+describe("GET /api/appointments — CLIENTE", () => {
+  beforeEach(() => { vi.clearAllMocks(); requireAuthMock.mockResolvedValue(CLIENTE); listAppointmentsMock.mockResolvedValue({ data: [turnoDTO], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } }); });
+  const getReq = (u: string) => new Request(u, { method: "GET" });
+  it("200 envelope + customerId injection", async () => {
+    const r = await GET(getReq("http://localhost/api/appointments?status=PENDIENTE"));
+    expect(r.status).toBe(200); const j = (await r.json()) as { data: unknown[]; pagination: unknown };
+    expect(j).toHaveProperty("data"); expect(listAppointmentsMock).toHaveBeenCalledTimes(1);
+    const a = listAppointmentsMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>, typeof CLIENTE];
+    expect(a[2]).toEqual(CLIENTE); expect(a[1].status).toBe("PENDIENTE");
+  });
+  it("401 before 400", async () => {
+    requireAuthMock.mockRejectedValue(new UnauthorizedError("Missing token"));
+    const r = await GET(getReq("http://localhost/api/appointments?limit=101"));
+    expect(r.status).toBe(401); expect(listAppointmentsMock).not.toHaveBeenCalled();
+  });
+  it("400 CANCELADO without flag", async () => {
+    const r = await GET(getReq("http://localhost/api/appointments?status=CANCELADO"));
+    expect(r.status).toBe(400); expect(((await r.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_ERROR");
+  });
+  it("400 date+from & limit 101", async () => {
+    const r1 = await GET(getReq("http://localhost/api/appointments?date=2026-09-10&from=2026-09-10T00:00:00-03:00"));
+    expect(r1.status).toBe(400);
+    const r2 = await GET(getReq("http://localhost/api/appointments?limit=101"));
+    expect(r2.status).toBe(400);
+  });
+  it("no snake leak camelCase", async () => {
+    const r = await GET(getReq("http://localhost/api/appointments"));
+    const j = (await r.json()) as { data: Record<string, unknown>[] };
+    expect(j.data[0]).toHaveProperty("customerId"); expect(j.data[0]).not.toHaveProperty("cliente_id");
+  });
+  it("sort & pagination passthrough", async () => {
+    await GET(getReq("http://localhost/api/appointments?sort=startAt:desc"));
+    expect((listAppointmentsMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>])[1].sort).toBe("startAt:desc");
+    listAppointmentsMock.mockResolvedValue({ data: [], pagination: { page: 2, limit: 10, total: 25, totalPages: 3 } });
+    const r = await GET(getReq("http://localhost/api/appointments?page=2&limit=10&offset=999"));
+    expect(r.status).toBe(200); const last = listAppointmentsMock.mock.calls.at(-1) as unknown as [unknown, Record<string, unknown>];
+    expect(last[1].page).toBe(2); expect(last[1].offset).toBe(999);
   });
 });
