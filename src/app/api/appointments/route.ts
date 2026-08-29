@@ -13,11 +13,15 @@ import {
   requireAuth,
 } from "@/lib/auth/requireAuth";
 import { InvalidServiceError } from "@/services/appointmentGuard";
-import { createAppointment } from "@/services/appointmentService";
+import {
+  createAppointment,
+  listAppointments,
+} from "@/services/appointmentService";
 import {
   AppointmentNotAvailableError,
   AppointmentNotFoundError,
 } from "@/services/errors";
+import { parseAppointmentQuery } from "@/lib/http/appointmentQuery";
 
 // INV-06: ISO 8601 with timezone required (Z or ±HH:MM)
 const isoWithTimezoneRegex =
@@ -109,6 +113,61 @@ export async function POST(req: Request) {
     }
     if (e instanceof AppointmentNotFoundError) {
       return toErrorBody(ERROR_CODES.APPOINTMENT_NOT_FOUND, e.message);
+    }
+    if (e instanceof ZodError) {
+      return toValidationError(e);
+    }
+    throw e;
+  }
+}
+
+export async function GET(req: Request) {
+  let authUser: Awaited<ReturnType<typeof requireAuth>>;
+  try {
+    authUser = await requireAuth(req);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) {
+      return toErrorBody(ERROR_CODES.UNAUTHORIZED, e.message);
+    }
+    if (e instanceof ForbiddenError) {
+      return toErrorBody(ERROR_CODES.FORBIDDEN, e.message);
+    }
+    throw e;
+  }
+
+  const raw = Object.fromEntries(new URL(req.url).searchParams.entries()) as Record<
+    string,
+    string | undefined
+  >;
+
+  let parsed: ReturnType<typeof parseAppointmentQuery>;
+  try {
+    parsed = parseAppointmentQuery(raw);
+  } catch (e) {
+    if (e instanceof ZodError) {
+      return toValidationError(e);
+    }
+    if (e instanceof ValidationError) {
+      return toErrorBody(ERROR_CODES.VALIDATION_ERROR, e.message);
+    }
+    throw e;
+  }
+
+  const config: Pick<typeof workshopConfig, "timezone" | "operatingHours" | "capacityPerSlot"> = {
+    timezone: workshopConfig.timezone,
+    operatingHours: workshopConfig.operatingHours,
+    capacityPerSlot: workshopConfig.capacityPerSlot,
+  };
+
+  try {
+    const result = await listAppointments({ db, config, now: new Date() }, parsed as never, authUser);
+    return NextResponse.json(result, { status: 200 });
+  } catch (e) {
+    if (e instanceof ValidationError) {
+      return toErrorBody(ERROR_CODES.VALIDATION_ERROR, e.message);
+    }
+    if (e instanceof ForbiddenError) {
+      return toErrorBody(ERROR_CODES.FORBIDDEN, e.message);
     }
     if (e instanceof ZodError) {
       return toValidationError(e);
