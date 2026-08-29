@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lt, inArray, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "@/db";
 import { servicios, turnos } from "@/db/schema";
@@ -16,6 +16,7 @@ import {
   AppointmentNotAvailableError,
   AppointmentNotFoundError,
 } from "@/services/errors";
+import { getBaDayUtcRange } from "@/services/availability/availabilityService";
 
 /**
  * Public-facing creation input (INV-08): English camelCase at the
@@ -216,6 +217,13 @@ export interface FindTurnosPaginatedQuery {
   limit?: number;
   sort?: "asc" | "desc" | "startAt:asc" | "startAt:desc";
   now?: Date;
+  // --- T-033 extensions (all optional, additive) ---
+  status?: "PENDIENTE" | "CONFIRMADO" | "CANCELADO" | "RECHAZADO";
+  from?: Date;
+  to?: Date;
+  date?: string;
+  offset?: number;
+  dateRange?: { fromUtc: Date; toUtc: Date };
 }
 
 export interface FindTurnosPaginatedResult {
@@ -259,12 +267,74 @@ export async function findTurnosPaginated(
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new ValidationError("invalid now Date");
   }
+  // --- T-033 validations ---
+  if (query.offset !== undefined) {
+    if (!Number.isInteger(query.offset) || query.offset < 0) {
+      throw new ValidationError("offset must be >= 0");
+    }
+  }
+  const allowedStatuses = new Set(["PENDIENTE", "CONFIRMADO", "CANCELADO", "RECHAZADO"]);
+  if (query.status !== undefined && !allowedStatuses.has(query.status)) {
+    throw new ValidationError("status must be PENDIENTE|CONFIRMADO|CANCELADO|RECHAZADO");
+  }
+  // Defensive contradiction guard (also enforced in Zod)
+  if (query.status === "CANCELADO" && !query.includeCancelled) {
+    throw new ValidationError("status CANCELADO requires includeCancelled=true");
+  }
+  if (query.status === "RECHAZADO" && !query.includeRejected) {
+    throw new ValidationError("status RECHAZADO requires includeRejected=true");
+  }
+  // Defensive date vs from/to mutual exclusion
+  if (query.date !== undefined && (query.from !== undefined || query.to !== undefined)) {
+    throw new ValidationError("use date or from/to, not both");
+  }
+  if (query.dateRange !== undefined && (query.from !== undefined || query.to !== undefined)) {
+    throw new ValidationError("use date or from/to, not both");
+  }
+  if (query.from !== undefined && (!(query.from instanceof Date) || Number.isNaN(query.from.getTime()))) {
+    throw new ValidationError("invalid from Date");
+  }
+  if (query.to !== undefined && (!(query.to instanceof Date) || Number.isNaN(query.to.getTime()))) {
+    throw new ValidationError("invalid to Date");
+  }
+  if (query.from !== undefined && query.to !== undefined && query.from.getTime() > query.to.getTime()) {
+    throw new ValidationError("from must be <= to");
+  }
+  if (query.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(query.date)) {
+    throw new ValidationError("date must be YYYY-MM-DD");
+  }
+  if (query.dateRange !== undefined) {
+    const dr = query.dateRange;
+    if (
+      !(dr.fromUtc instanceof Date) ||
+      Number.isNaN(dr.fromUtc.getTime()) ||
+      !(dr.toUtc instanceof Date) ||
+      Number.isNaN(dr.toUtc.getTime())
+    ) {
+      throw new ValidationError("invalid dateRange");
+    }
+    if (dr.fromUtc.getTime() > dr.toUtc.getTime()) {
+      throw new ValidationError("dateRange from must be <= to");
+    }
+  }
 
   const sortDir = rawSort.includes("desc") ? "desc" : "asc";
 
-  const statuses: string[] = ["PENDIENTE", "CONFIRMADO"];
-  if (query.includeCancelled) statuses.push("CANCELADO");
-  if (query.includeRejected) statuses.push("RECHAZADO");
+  // Statuses: default RN-04 or exact status override
+  let statuses: string[];
+  if (query.status !== undefined) {
+    statuses = [query.status];
+  } else {
+    statuses = ["PENDIENTE", "CONFIRMADO"];
+    if (query.includeCancelled) statuses.push("CANCELADO");
+    if (query.includeRejected) statuses.push("RECHAZADO");
+  }
+
+  // Resolve dateRange from `date` string if provided and no explicit dateRange
+  let effectiveDateRange: { fromUtc: Date; toUtc: Date } | undefined = query.dateRange;
+  if (!effectiveDateRange && query.date !== undefined) {
+    effectiveDateRange = getBaDayUtcRange(query.date, workshopConfig.timezone);
+  }
 
   const conditions = [
     inArray(turnos.estado, statuses),
@@ -272,6 +342,16 @@ export async function findTurnosPaginated(
   ];
   if (query.customerId !== undefined) {
     conditions.push(eq(turnos.clienteId, query.customerId));
+  }
+  if (effectiveDateRange) {
+    conditions.push(gte(turnos.fechaHoraInicio, effectiveDateRange.fromUtc));
+    conditions.push(lt(turnos.fechaHoraInicio, effectiveDateRange.toUtc));
+  }
+  if (query.from !== undefined) {
+    conditions.push(gte(turnos.fechaHoraInicio, query.from));
+  }
+  if (query.to !== undefined) {
+    conditions.push(lt(turnos.fechaHoraInicio, query.to));
   }
 
   const whereClause = and(...conditions);
@@ -286,7 +366,22 @@ export async function findTurnosPaginated(
 
   const total = Number((totalRows[0] as unknown as { count: number })?.count ?? 0);
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
-  const offset = (page - 1) * limit;
+  // Offset handling: page wins if both page and offset provided; otherwise respect offset
+  // Heuristic: when page is default 1 and offset is provided, use offset; when page >1 and offset provided, page wins
+  let offsetValue: number;
+  if (query.offset !== undefined && query.page === undefined) {
+    offsetValue = query.offset;
+  } else if (query.offset !== undefined && page === 1) {
+    // page default (1) + offset explicit → honor offset (supports ?offset=20)
+    // If both explicitly page=1 and offset=5, this still honors offset; page-wins for page>1 covers spec's "page overrides offset"
+    offsetValue = query.offset;
+  } else {
+    offsetValue = (page - 1) * limit;
+  }
+  // Explicit page>1 overrides offset regardless
+  if (query.offset !== undefined && query.page !== undefined && page !== 1) {
+    offsetValue = (page - 1) * limit;
+  }
 
   const rows = await db
     .select()
@@ -294,7 +389,7 @@ export async function findTurnosPaginated(
     .where(whereClause)
     .orderBy(orderClause)
     .limit(limit)
-    .offset(offset);
+    .offset(offsetValue);
 
   return {
     data: rows.map(toTurnoDTO),
