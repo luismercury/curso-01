@@ -51,7 +51,7 @@ Chain strategy: feature-branch-chain
 
 ## Phase 5: Cleanup
 
-- [ ] 5.1 T-033-007 Docs sync — Update checkmarks, verify no COMPLETADO/FOR UPDATE leak, toTurnoDTO present.
+- [x] 5.1 T-033-007 Docs sync — Update checkmarks, verify no COMPLETADO/FOR UPDATE leak, toTurnoDTO present.
   Files: `openspec/changes/t033-appointment-query/tasks.md` | Deps: T-033-006 | Est: ~10 | AC: No drift, INV-02/08
 
 Threat matrix: N/A (no shell/VCS boundary).
