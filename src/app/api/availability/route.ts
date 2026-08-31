@@ -10,8 +10,7 @@ import {
   UnauthorizedError,
   requireAuth,
 } from "@/lib/auth/requireAuth";
-import { workshopConfig } from "@/config/workshopConfig";
-import type { GetAvailableSlotsConfig } from "@/services/availability/availabilityService";
+import { getWorkshopConfig } from "@/config/workshopConfig";
 import {
   getAvailableSlotsForDate,
   getBaDayUtcRange,
@@ -52,9 +51,14 @@ export async function GET(req: Request) {
 
   const { date: dateStr, serviceId } = parsed.data;
 
-  // 3. Calendar validation via BA DST range (string overload) + ISO overflow check
+  // 3. T-036b DB provider — per-request, no global cache.
+  //    Empty workshop_schedules → Mon-Fri DEFAULT_OPERATING_INTERVALS, Sat/Sun [].
+  //    Patched rows merge into operatingHours so GET reflects next request.
+  const config = await getWorkshopConfig(db);
+
+  // 4. Calendar validation via BA DST range (string overload) + ISO overflow check
   try {
-    getBaDayUtcRange(dateStr, workshopConfig.timezone);
+    getBaDayUtcRange(dateStr, config.timezone);
     // Detect overflow like 2026-02-30 → 2026-03-02
     const noonCheck = new Date(`${dateStr}T12:00:00.000Z`);
     if (
@@ -70,7 +74,7 @@ export async function GET(req: Request) {
     throw e;
   }
 
-  // 4. Service resolution + activation guard
+  // 5. Service resolution + activation guard
   let dto: Awaited<ReturnType<typeof getServiceById>>;
   try {
     dto = await getServiceById(db, serviceId);
@@ -88,19 +92,11 @@ export async function GET(req: Request) {
     return toErrorBody(ERROR_CODES.INVALID_SERVICE, "Service is inactive");
   }
 
-  // 5. WorkshopConfig DI
-  const config: GetAvailableSlotsConfig = {
-    timezone: workshopConfig.timezone,
-    slotStepMinutes: workshopConfig.slotStepMinutes,
-    capacityPerSlot: workshopConfig.capacityPerSlot,
-    operatingHours: workshopConfig.operatingHours,
-  };
-
-  // Adapter: single bulk fetch
+  // 6. Adapter: single bulk fetch
   const fetchActiveTurnos: import("@/services/availability/availabilityService").FetchActiveTurnos =
     (range) => findActiveTurnosByDateRange(db, range);
 
-  // 6. Delegate to domain — noon sentinel ensures BA ymd matches dateStr via Intl
+  // 7. Delegate to domain — noon sentinel ensures BA ymd matches dateStr via Intl
   const noonDate = new Date(`${dateStr}T12:00:00.000Z`);
 
   let slots: Awaited<ReturnType<typeof getAvailableSlotsForDate>>;

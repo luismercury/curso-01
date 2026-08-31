@@ -39,14 +39,14 @@ Suggested split: PR #1 foundation → PR #2 mutation API → PR #3 reflection
 
 ## Phase 4: Consumer Swaps (PR #3)
 
-- [ ] 4.1 Modify `availability/route.ts` — `await getWorkshopConfig(db)` for `operatingHours`; keep frozen `timezone`/`slotStepMinutes`/`capacityPerSlot`.
-- [ ] 4.2 Modify `appointments/route.ts` POST + GET — same swap; `finIntervaloOperativo` honors patched.
-- [ ] 4.3 Add `getWorkshopConfigMock` to both route tests; called per request.
-- [ ] 4.4 Reflection — post-PATCH Tue `[{09:00-10:00}]` → GET `["09:00"]` only; POST 11:00+60 → 400 (no FOR UPDATE).
-- [ ] 4.5 BA DST half-open — patched schedule near DST matches `getBaDayUtcRange` oracle.
+- [x] 4.1 Modify `availability/route.ts` — `await getWorkshopConfig(db)` for `operatingHours`; keep frozen `timezone`/`slotStepMinutes`/`capacityPerSlot`.
+- [x] 4.2 Modify `appointments/route.ts` POST + GET — same swap; `finIntervaloOperativo` honors patched.
+- [x] 4.3 Add `getWorkshopConfigMock` to both route tests; called per request.
+- [x] 4.4 Reflection — post-PATCH Tue `[{09:00-10:00}]` → GET `["09:00"]` only; POST 11:00+60 → 400 (no FOR UPDATE).
+- [x] 4.5 BA DST half-open — patched schedule near DST matches `getBaDayUtcRange` oracle.
 
 ## Phase 5: Verification (PR #3)
 
-- [ ] 5.1 `pnpm vitest run` — all green; T-026/T-033/T-034/T-036/T-037 unchanged.
-- [ ] 5.2 `pnpm tsc --noEmit` clean; `pnpm db:migrate` + `psql \d workshop_schedules` — idx 6 + CHECK + PK.
-- [ ] 5.3 `git diff --stat` ±10% of forecast; one commit per work unit.
+- [x] 5.1 `pnpm vitest run` — all green; T-026/T-033/T-034/T-036/T-037 unchanged.
+- [x] 5.2 `pnpm tsc --noEmit` clean; `pnpm db:migrate` + `psql \d workshop_schedules` — idx 6 + CHECK + PK.
+- [x] 5.3 `git diff --stat` ±10% of forecast; one commit per work unit.

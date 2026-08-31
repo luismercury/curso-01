@@ -30,6 +30,20 @@ vi.mock("@/lib/auth/requireAuth", async () => {
   };
 });
 
+const getWorkshopConfigMock = vi.fn();
+vi.mock("@/config/workshopConfig", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/config/workshopConfig")
+  >("@/config/workshopConfig");
+  return {
+    ...actual,
+    getWorkshopConfig: (...args: unknown[]) => getWorkshopConfigMock(...(args as never[])),
+  };
+});
+
+import { workshopConfig } from "@/config/workshopConfig";
+import { DEFAULT_OPERATING_INTERVALS } from "@/config/workshopSchedule";
+
 import {
   ForbiddenError,
   UnauthorizedError,
@@ -70,11 +84,18 @@ const turnoDTO = {
   updatedAt: new Date("2026-09-01T00:00:00.000Z"),
 };
 
+// Default per-request mock: returns the frozen fallback so existing tests
+// keep their pre-PR3 behavior (empty operatingHours → Mon-Fri DEFAULT, Sat/Sun []).
+function setWorkshopConfigFallback() {
+  getWorkshopConfigMock.mockResolvedValue(workshopConfig);
+}
+
 describe("POST /api/appointments — thin route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requireAuthMock.mockResolvedValue(CLIENTE);
     createAppointmentMock.mockResolvedValue(turnoDTO);
+    setWorkshopConfigFallback();
   });
 
   it("201 returns TurnoDTO camelCase on valid ISO with timezone", async () => {
@@ -269,7 +290,12 @@ describe("POST /api/appointments — thin route", () => {
 });
 
 describe("GET /api/appointments — CLIENTE", () => {
-  beforeEach(() => { vi.clearAllMocks(); requireAuthMock.mockResolvedValue(CLIENTE); listAppointmentsMock.mockResolvedValue({ data: [turnoDTO], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } }); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireAuthMock.mockResolvedValue(CLIENTE);
+    listAppointmentsMock.mockResolvedValue({ data: [turnoDTO], pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
+    setWorkshopConfigFallback();
+  });
   const getReq = (u: string) => new Request(u, { method: "GET" });
   it("200 envelope + customerId injection", async () => {
     const r = await GET(getReq("http://localhost/api/appointments?status=PENDIENTE"));
@@ -372,5 +398,178 @@ describe("GET /api/appointments — CLIENTE", () => {
     expect(j.data[0]).not.toHaveProperty("fecha_hora_inicio");
     expect(j.data[0]).not.toHaveProperty("fecha_hora_fin");
     expect(j).toMatchObject({ pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
+  });
+});
+
+// T-036b / H-05 reflection — patched schedule must reflect on next POST.
+// Per spec/availability/spec.md "Creation outside patched interval rejected".
+describe("POST /api/appointments — T-036b reflection (patched operatingHours)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireAuthMock.mockResolvedValue(CLIENTE);
+    createAppointmentMock.mockResolvedValue(turnoDTO);
+  });
+
+  it("getWorkshopConfig(db) called per request — passed through to createAppointment", async () => {
+    setWorkshopConfigFallback();
+    await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(getWorkshopConfigMock).toHaveBeenCalledTimes(1);
+    expect(createAppointmentMock).toHaveBeenCalledTimes(1);
+    const args = createAppointmentMock.mock.calls[0] as unknown as [
+      { db: unknown; config: typeof workshopConfig },
+      { vehicleId: string; serviceId: string; startDateTime: Date },
+    ];
+    // The route passes the resolved config from getWorkshopConfig — not the frozen fallback.
+    // With the default mock returning workshopConfig, that's what flows through.
+    expect(args[0].config).toEqual(workshopConfig);
+  });
+
+  it("patched narrow interval → start 11:00 + 60min → 400 VALIDATION_ERROR (outside interval)", async () => {
+    // Patch Tuesday (dow=2) to 09:00-10:00 — request is for Tuesday 11:00 + 60min
+    // ending at 12:00, which exceeds finIntervaloOperativo 10:00.
+    const patchedHours = {
+      1: [...DEFAULT_OPERATING_INTERVALS],
+      2: [{ start: "09:00", end: "10:00" }],
+      3: [...DEFAULT_OPERATING_INTERVALS],
+      4: [...DEFAULT_OPERATING_INTERVALS],
+      5: [...DEFAULT_OPERATING_INTERVALS],
+      0: [],
+      6: [],
+    } as Record<0 | 1 | 2 | 3 | 4 | 5 | 6, { start: string; end: string }[]>;
+    getWorkshopConfigMock.mockResolvedValue({
+      ...workshopConfig,
+      operatingHours: patchedHours,
+    });
+    // Simulate createAppointment (the real path uses calculateEndAndValidate)
+    // rejecting with the inclusive <= check failing for finIntervaloOperativo.
+    createAppointmentMock.mockRejectedValue(
+      new ValidationError(
+        "fechaHoraFin 2026-09-08T14:00:00.000Z exceeds finIntervaloOperativo 2026-09-08T13:00:00.000Z",
+      ),
+    );
+
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        // Tuesday 2026-09-08 at 11:00 BA = 14:00 UTC; duration 60 → end 15:00 UTC
+        startDateTime: "2026-09-08T11:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toMatch(/finIntervaloOperativo/);
+    // createAppointment IS called (route must pass patched config) — service
+    // throws ValidationError BEFORE countActiveOverlappingForUpdate (real impl),
+    // which the route maps to 400. No FOR UPDATE happened inside the real impl.
+    expect(createAppointmentMock).toHaveBeenCalledTimes(1);
+    const args = createAppointmentMock.mock.calls[0] as unknown as [
+      { config: { operatingHours: typeof patchedHours } },
+      { startDateTime: Date },
+    ];
+    expect(args[0].config.operatingHours).toEqual(patchedHours);
+    expect(args[1].startDateTime.toISOString()).toBe("2026-09-08T14:00:00.000Z");
+  });
+
+  it("patched interval fits → 201 — config flows through unchanged", async () => {
+    const patchedHours = {
+      1: [...DEFAULT_OPERATING_INTERVALS],
+      2: [{ start: "09:00", end: "12:00" }, { start: "14:00", end: "18:00" }],
+      3: [...DEFAULT_OPERATING_INTERVALS],
+      4: [...DEFAULT_OPERATING_INTERVALS],
+      5: [...DEFAULT_OPERATING_INTERVALS],
+      0: [],
+      6: [],
+    } as Record<0 | 1 | 2 | 3 | 4 | 5 | 6, { start: string; end: string }[]>;
+    getWorkshopConfigMock.mockResolvedValue({
+      ...workshopConfig,
+      operatingHours: patchedHours,
+    });
+    createAppointmentMock.mockResolvedValue(turnoDTO);
+    const res = await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(createAppointmentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("two consecutive POSTs re-call getWorkshopConfig (no global cache)", async () => {
+    setWorkshopConfigFallback();
+    await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T10:00:00-03:00",
+      }),
+    );
+    await POST(
+      makeRequest({
+        vehicleId: VEHICLE_ID,
+        serviceId: SERVICE_ID,
+        startDateTime: "2026-09-10T11:00:00-03:00",
+      }),
+    );
+    expect(getWorkshopConfigMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("GET /api/appointments — T-036b reflection (per-request config)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireAuthMock.mockResolvedValue(CLIENTE);
+    listAppointmentsMock.mockResolvedValue({
+      data: [turnoDTO],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+  });
+
+  it("GET also calls getWorkshopConfig(db) per request — passed to listAppointments", async () => {
+    setWorkshopConfigFallback();
+    const r = await GET(new Request("http://localhost/api/appointments?status=PENDIENTE"));
+    expect(r.status).toBe(200);
+    expect(getWorkshopConfigMock).toHaveBeenCalledTimes(1);
+    expect(listAppointmentsMock).toHaveBeenCalledTimes(1);
+    const args = listAppointmentsMock.mock.calls[0] as unknown as [
+      { db: unknown; config: typeof workshopConfig; now: Date },
+      Record<string, unknown>,
+      typeof CLIENTE,
+    ];
+    expect(args[0].config).toEqual(workshopConfig);
+    expect(args[0].now).toBeInstanceOf(Date);
+  });
+
+  it("patched config flows through to listAppointments unchanged", async () => {
+    const patchedHours = {
+      1: [...DEFAULT_OPERATING_INTERVALS],
+      2: [{ start: "10:00", end: "11:00" }],
+      3: [...DEFAULT_OPERATING_INTERVALS],
+      4: [...DEFAULT_OPERATING_INTERVALS],
+      5: [...DEFAULT_OPERATING_INTERVALS],
+      0: [],
+      6: [],
+    } as Record<0 | 1 | 2 | 3 | 4 | 5 | 6, { start: string; end: string }[]>;
+    getWorkshopConfigMock.mockResolvedValue({
+      ...workshopConfig,
+      operatingHours: patchedHours,
+    });
+    const r = await GET(new Request("http://localhost/api/appointments?status=PENDIENTE"));
+    expect(r.status).toBe(200);
+    const args = listAppointmentsMock.mock.calls[0] as unknown as [
+      { config: { operatingHours: typeof patchedHours } },
+      Record<string, unknown>,
+      typeof CLIENTE,
+    ];
+    expect(args[0].config.operatingHours).toEqual(patchedHours);
   });
 });
