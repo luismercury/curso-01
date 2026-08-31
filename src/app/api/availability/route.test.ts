@@ -26,6 +26,17 @@ vi.mock("@/lib/auth/requireAuth", async () => {
   };
 });
 
+const getWorkshopConfigMock = vi.fn();
+vi.mock("@/config/workshopConfig", async () => {
+  const actual = await vi.importActual<typeof import("@/config/workshopConfig")>(
+    "@/config/workshopConfig",
+  );
+  return {
+    ...actual,
+    getWorkshopConfig: (...args: unknown[]) => getWorkshopConfigMock(...(args as never[])),
+  };
+});
+
 const findActiveTurnosMock = vi.fn();
 vi.mock("@/db/repositories/turnos", async () => {
   const actual = await vi.importActual<typeof import("@/db/repositories/turnos")>(
@@ -43,6 +54,7 @@ import { UnauthorizedError, ForbiddenError } from "@/lib/auth/requireAuth";
 import { GET } from "@/app/api/availability/route";
 import { getBaDayUtcRange } from "@/services/availability/availabilityService";
 import { workshopConfig } from "@/config/workshopConfig";
+import { DEFAULT_OPERATING_INTERVALS } from "@/config/workshopSchedule";
 
 const VALID_SERVICE_ID = "00000000-0000-4000-a000-000000000001";
 const OTHER_SERVICE_ID = "00000000-0000-4000-a000-000000000002";
@@ -74,7 +86,14 @@ function makeRequest(url: string): Request {
 
 // Monday 2026-09-07 is weekday, Saturday 2026-09-12 is closed per DEFAULT_OPERATING_INTERVALS
 const MONDAY = "2026-09-07";
+const TUESDAY = "2026-09-08";
 const SATURDAY = "2026-09-12";
+
+// Default per-request mock: returns the frozen fallback so existing tests
+// keep their pre-PR3 behavior (empty operatingHours → Mon-Fri DEFAULT, Sat/Sun []).
+function setWorkshopConfigFallback() {
+  getWorkshopConfigMock.mockResolvedValue(workshopConfig);
+}
 
 describe("GET /api/availability — auth", () => {
   beforeEach(() => {
@@ -82,6 +101,7 @@ describe("GET /api/availability — auth", () => {
     requireAuthMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "CLIENTE" });
     getServiceByIdMock.mockResolvedValue(activeDto);
     findActiveTurnosMock.mockResolvedValue([]);
+    setWorkshopConfigFallback();
   });
 
   it("401 UNAUTHORIZED when missing token — no DB call", async () => {
@@ -136,6 +156,7 @@ describe("GET /api/availability — validation", () => {
     requireAuthMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "CLIENTE" });
     getServiceByIdMock.mockResolvedValue(activeDto);
     findActiveTurnosMock.mockResolvedValue([]);
+    setWorkshopConfigFallback();
   });
 
   it("400 VALIDATION_ERROR on bad date format 10-09-2026", async () => {
@@ -204,6 +225,7 @@ describe("GET /api/availability — service resolution", () => {
     vi.clearAllMocks();
     requireAuthMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "CLIENTE" });
     findActiveTurnosMock.mockResolvedValue([]);
+    setWorkshopConfigFallback();
   });
 
   it("404 SERVICE_NOT_FOUND for well-formed unknown UUID", async () => {
@@ -265,6 +287,7 @@ describe("GET /api/availability — delegation & response", () => {
     vi.clearAllMocks();
     requireAuthMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "CLIENTE" });
     getServiceByIdMock.mockResolvedValue(activeDto);
+    setWorkshopConfigFallback();
   });
 
   it("valid weekday returns 200 {date, availableSlots: HH:mm[]} sorted", async () => {
@@ -426,5 +449,79 @@ describe("GET /api/availability — delegation & response", () => {
     const rawCall = findActiveTurnosMock.mock.calls[0] as unknown as [unknown, { fromUtc: Date; toUtc: Date }];
     const arg = rawCall[1] ?? (rawCall[0] as { fromUtc: Date; toUtc: Date });
     expect(arg.fromUtc.toISOString()).toBe(exp.fromUtc.toISOString());
+  });
+});
+
+// T-036b / H-05 reflection — patched schedule must reflect on next GET.
+// Per spec/availability/spec.md "GET availability reflects patched schedule".
+describe("GET /api/availability — T-036b reflection (patched operatingHours)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireAuthMock.mockResolvedValue({ id: "user-1", email: "u@example.com", role: "CLIENTE" });
+    getServiceByIdMock.mockResolvedValue(activeDto);
+    findActiveTurnosMock.mockResolvedValue([]);
+  });
+
+  it("patched Tuesday [{09:00-10:00}] → only [\"09:00\"] slot, was 12 with defaults", async () => {
+    // Override ONLY Tuesday (dow=2) with the narrow interval; rest stays default.
+    getWorkshopConfigMock.mockResolvedValue({
+      ...workshopConfig,
+      operatingHours: {
+        1: [...DEFAULT_OPERATING_INTERVALS],
+        2: [{ start: "09:00", end: "10:00" }],
+        3: [...DEFAULT_OPERATING_INTERVALS],
+        4: [...DEFAULT_OPERATING_INTERVALS],
+        5: [...DEFAULT_OPERATING_INTERVALS],
+        0: [],
+        6: [],
+      } as Record<0 | 1 | 2 | 3 | 4 | 5 | 6, { start: string; end: string }[]>,
+    });
+    const res = await GET(
+      makeRequest(`http://localhost/api/availability?date=${TUESDAY}&serviceId=${VALID_SERVICE_ID}`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { date: string; availableSlots: string[] };
+    expect(body.date).toBe(TUESDAY);
+    // 09:00-10:00 with durationMinutes=60 and step=30 → only one valid candidate
+    // (09:00 with end=10:00 <= intervalEnd 10:00 ✓).
+    expect(body.availableSlots).toEqual(["09:00"]);
+    // Provider called per request with db handle
+    expect(getWorkshopConfigMock).toHaveBeenCalledTimes(1);
+    expect(getWorkshopConfigMock.mock.calls[0]?.[0]).toBeDefined();
+  });
+
+  it("patched Tuesday closed [] → 200 [], even though Mon-Fri defaults exist", async () => {
+    getWorkshopConfigMock.mockResolvedValue({
+      ...workshopConfig,
+      operatingHours: {
+        1: [...DEFAULT_OPERATING_INTERVALS],
+        2: [],
+        3: [...DEFAULT_OPERATING_INTERVALS],
+        4: [...DEFAULT_OPERATING_INTERVALS],
+        5: [...DEFAULT_OPERATING_INTERVALS],
+        0: [],
+        6: [],
+      } as Record<0 | 1 | 2 | 3 | 4 | 5 | 6, { start: string; end: string }[]>,
+    });
+    const res = await GET(
+      makeRequest(`http://localhost/api/availability?date=${TUESDAY}&serviceId=${VALID_SERVICE_ID}`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { availableSlots: string[] };
+    expect(body.availableSlots).toEqual([]);
+  });
+
+  it("per-request DI: two consecutive GETs re-call getWorkshopConfig (no global cache)", async () => {
+    setWorkshopConfigFallback();
+    await GET(
+      makeRequest(`http://localhost/api/availability?date=${MONDAY}&serviceId=${VALID_SERVICE_ID}`),
+    );
+    await GET(
+      makeRequest(`http://localhost/api/availability?date=${TUESDAY}&serviceId=${VALID_SERVICE_ID}`),
+    );
+    expect(getWorkshopConfigMock).toHaveBeenCalledTimes(2);
+    // Each call received the db handle
+    expect(getWorkshopConfigMock.mock.calls[0]?.[0]).toBeDefined();
+    expect(getWorkshopConfigMock.mock.calls[1]?.[0]).toBeDefined();
   });
 });

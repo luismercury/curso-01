@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 
 import { db } from "@/db";
-import { workshopConfig } from "@/config/workshopConfig";
+import { getWorkshopConfig } from "@/config/workshopConfig";
 import { ValidationError } from "@/config/workshopSchedule";
 import { ERROR_CODES, toErrorBody, toValidationError } from "@/lib/http/errors";
 import {
@@ -73,15 +73,9 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  // 4. DI config per INV-01/05/06 (parametrizable, not hardcoded)
-  const config: Pick<
-    typeof workshopConfig,
-    "timezone" | "operatingHours" | "capacityPerSlot"
-  > = {
-    timezone: workshopConfig.timezone,
-    operatingHours: workshopConfig.operatingHours,
-    capacityPerSlot: workshopConfig.capacityPerSlot,
-  };
+  // 4. T-036b DI config per request — empty workshop_schedules → defaults Mon-Fri
+  //    / Sat-Sun []; patched rows reflect on next request via getWorkshopConfig.
+  const config = await getWorkshopConfig(db);
 
   // 5. Delegate to atomic service
   try {
@@ -153,11 +147,7 @@ export async function GET(req: Request) {
     throw e;
   }
 
-  const config: Pick<typeof workshopConfig, "timezone" | "operatingHours" | "capacityPerSlot"> = {
-    timezone: workshopConfig.timezone,
-    operatingHours: workshopConfig.operatingHours,
-    capacityPerSlot: workshopConfig.capacityPerSlot,
-  };
+  const config = await getWorkshopConfig(db);
 
   try {
     const result = await listAppointments({ db, config, now: new Date() }, parsed as never, authUser);
