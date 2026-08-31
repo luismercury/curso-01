@@ -99,4 +99,67 @@ describe("GET /api/admin/appointments", () => {
     // listMock only reachable for ADMIN 200 path (none in this precedence test)
     expect(listMock).not.toHaveBeenCalled();
   });
+
+  // H-19 / T-037 / Trace 1 — admin agenda via ?date=YYYY-MM-DD reuse (H-27+H-28).
+  // Daily agenda = T-033 paginated query with `date` filter; BA half-open + gt(now)
+  // applied in findTurnosPaginated via getBaDayUtcRange (asserted via date pass-through).
+  it("agenda ?date=YYYY-MM-DD 200 ordered startAt:asc pagination (H-27+H-28) — T-037", async () => {
+    const r = await GET(new Request("http://localhost/api/admin/appointments?date=2026-09-10&page=1&limit=20&sort=startAt:asc", { method: "GET" }));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { data: Record<string, unknown>[]; pagination: Record<string, unknown> };
+    expect(j.pagination).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
+    expect(listMock).toHaveBeenCalledTimes(1);
+    const args = listMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>, typeof ADMIN];
+    expect(args[1]).toMatchObject({ date: "2026-09-10", page: 1, limit: 20, sort: "startAt:asc" });
+    expect(args[2].role).toBe("ADMINISTRADOR");
+    expect(j.data).toHaveLength(1);
+  });
+
+  // H-11 / T-037 / Trace 3 — agenda ?date= include* flags default false / each / both.
+  it("agenda ?date= includeCancelled/includeRejected default false then each flag then both — H-11 — T-037", async () => {
+    const cases: Array<{ url: string; inc: boolean; rej: boolean }> = [
+      { url: "?date=2026-09-10&page=1&limit=20&sort=startAt:asc", inc: false, rej: false },
+      { url: "?date=2026-09-10&includeCancelled=true", inc: true, rej: false },
+      { url: "?date=2026-09-10&includeRejected=true", inc: false, rej: true },
+      { url: "?date=2026-09-10&includeCancelled=true&includeRejected=true", inc: true, rej: true },
+    ];
+    for (const c of cases) {
+      await GET(new Request(`http://localhost/api/admin/appointments${c.url}`, { method: "GET" }));
+      const args = listMock.mock.calls.at(-1) as unknown as [unknown, Record<string, unknown>, typeof ADMIN];
+      expect(args[1]).toMatchObject({ date: "2026-09-10", includeCancelled: c.inc, includeRejected: c.rej });
+    }
+    expect(listMock).toHaveBeenCalledTimes(4);
+  });
+
+  // T-037 / Trace 4 — agenda ?date=&limit=101 precedence 401→403→400 (mirrors T-036 pattern).
+  it("agenda ?date=&limit=101 precedence 401→403→400 — T-037", async () => {
+    const url = "http://localhost/api/admin/appointments?date=2026-09-10&limit=101";
+    authMock.mockRejectedValue(new UnauthorizedError("Missing token"));
+    const r401 = await GET(new Request(url, { method: "GET" }));
+    expect(r401.status).toBe(401);
+    expect(((await r401.json()) as { error: { code: string } }).error.code).toBe("UNAUTHORIZED");
+    authMock.mockResolvedValue(CLIENTE);
+    const r403 = await GET(new Request(url, { method: "GET" }));
+    expect(r403.status).toBe(403);
+    expect(((await r403.json()) as { error: { code: string } }).error.code).toBe("FORBIDDEN");
+    authMock.mockResolvedValue(ADMIN);
+    const r400 = await GET(new Request(url, { method: "GET" }));
+    expect(r400.status).toBe(400);
+    expect(((await r400.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_ERROR");
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  // INV-08/H-28 / T-037 / Trace 5 — agenda ?date= no snake leak + envelope.
+  it("agenda ?date= INV-08 no snake leak + H-28 envelope — T-037", async () => {
+    const r = await GET(new Request("http://localhost/api/admin/appointments?date=2026-09-10&page=1&limit=20&sort=startAt:asc", { method: "GET" }));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { data: Record<string, unknown>[]; pagination: Record<string, unknown> };
+    expect(j.data[0]).toMatchObject({ status: "PENDIENTE", customerId: CLIENTE.id });
+    expect(j.data[0]).toHaveProperty("startDateTime");
+    expect(j.data[0]).toHaveProperty("endDateTime");
+    expect(j.data[0]).not.toHaveProperty("estado");
+    expect(j.data[0]).not.toHaveProperty("fecha_hora_inicio");
+    expect(j.data[0]).not.toHaveProperty("fecha_hora_fin");
+    expect(j).toMatchObject({ pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
+  });
 });

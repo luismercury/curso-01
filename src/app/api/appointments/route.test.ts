@@ -328,4 +328,49 @@ describe("GET /api/appointments — CLIENTE", () => {
     expect(j.data[0]).not.toHaveProperty("estado");
     expect(j.data[0]).not.toHaveProperty("fecha_hora_inicio");
   });
+
+  // H-19 / T-037 / Trace 2 — CLIENTE daily agenda via ?date=YYYY-MM-DD reuse.
+  // Route forwards date+sort verbatim; service injects customerId=authUser.id (§4.5).
+  it("agenda ?date=YYYY-MM-DD 200 scoped customerId own — T-037", async () => {
+    const r = await GET(getReq("http://localhost/api/appointments?date=2026-09-10&sort=startAt:asc"));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { data: Record<string, unknown>[]; pagination: Record<string, unknown> };
+    expect(j.pagination).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
+    expect(listAppointmentsMock).toHaveBeenCalledTimes(1);
+    const args = listAppointmentsMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>, typeof CLIENTE];
+    expect(args[1]).toMatchObject({ date: "2026-09-10", sort: "startAt:asc" });
+    // H-19 / §4.5: listAppointments injects customerId=authUser.id for CLIENTE
+    expect(args[2]).toEqual(CLIENTE);
+    expect(j.data).toHaveLength(1);
+  });
+
+  // H-11 / T-037 / Trace 3 — client agenda ?date= include* flags default false / each / both.
+  it("agenda ?date= includeCancelled/includeRejected default false then each flag then both — H-11 — T-037", async () => {
+    const cases: Array<{ url: string; inc: boolean; rej: boolean }> = [
+      { url: "?date=2026-09-10&page=1&limit=20&sort=startAt:asc", inc: false, rej: false },
+      { url: "?date=2026-09-10&includeCancelled=true", inc: true, rej: false },
+      { url: "?date=2026-09-10&includeRejected=true", inc: false, rej: true },
+      { url: "?date=2026-09-10&includeCancelled=true&includeRejected=true", inc: true, rej: true },
+    ];
+    for (const c of cases) {
+      await GET(getReq(`http://localhost/api/appointments${c.url}`));
+      const args = listAppointmentsMock.mock.calls.at(-1) as unknown as [unknown, Record<string, unknown>, typeof CLIENTE];
+      expect(args[1]).toMatchObject({ date: "2026-09-10", includeCancelled: c.inc, includeRejected: c.rej });
+    }
+    expect(listAppointmentsMock).toHaveBeenCalledTimes(4);
+  });
+
+  // INV-08/H-28 / T-037 / Trace 5 — client agenda ?date= no snake leak + envelope.
+  it("agenda ?date= INV-08 no snake leak + H-28 envelope — T-037", async () => {
+    const r = await GET(getReq("http://localhost/api/appointments?date=2026-09-10&page=1&limit=20&sort=startAt:asc"));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { data: Record<string, unknown>[]; pagination: Record<string, unknown> };
+    expect(j.data[0]).toMatchObject({ status: "PENDIENTE", customerId: CLIENTE.id });
+    expect(j.data[0]).toHaveProperty("startDateTime");
+    expect(j.data[0]).toHaveProperty("endDateTime");
+    expect(j.data[0]).not.toHaveProperty("estado");
+    expect(j.data[0]).not.toHaveProperty("fecha_hora_inicio");
+    expect(j.data[0]).not.toHaveProperty("fecha_hora_fin");
+    expect(j).toMatchObject({ pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } });
+  });
 });
