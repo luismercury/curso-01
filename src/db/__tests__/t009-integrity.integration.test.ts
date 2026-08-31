@@ -32,7 +32,7 @@ describe("t009 dual-source Tier C — file-content (no DB)", () => {
 
   it("migration 0004 exists with btree_gist preamble and EXCLUDE, journal idx 4", () => {
     const journal = JSON.parse(readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"));
-    expect(journal.entries).toHaveLength(6);
+    expect(journal.entries.length).toBeGreaterThanOrEqual(6);
     const e4 = journal.entries.find((e: { idx: number }) => e.idx === 4);
     expect(e4).toBeDefined();
     expect(e4.tag).toMatch(/^0004_/);
@@ -43,16 +43,24 @@ describe("t009 dual-source Tier C — file-content (no DB)", () => {
     expect(sql).toMatch(/tstzrange/);
   });
 
-  it("_journal.json has linear idx 0..5 and 0005 users", () => {
+  it("_journal.json is linear idx 0..N with 0005 users + 0006 workshop_schedules", () => {
     const journal = JSON.parse(readFileSync(resolve("drizzle/meta/_journal.json"), "utf8"));
     const idxs = journal.entries.map((e: { idx: number }) => e.idx).sort((a: number, b: number) => a - b);
-    expect(idxs).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(idxs).toEqual([0, 1, 2, 3, 4, 5, 6]);
     const e5 = journal.entries.find((e: { idx: number }) => e.idx === 5);
     expect(e5).toBeDefined();
     expect(e5.tag).toMatch(/^0005_/);
     const sql5 = readFileSync(resolve(`drizzle/${e5.tag}.sql`), "utf8");
     expect(sql5).toMatch(/users/);
     expect(sql5).toMatch(/users_role_check/);
+    // T-036b 0006 workshop_schedules
+    const e6 = journal.entries.find((e: { idx: number }) => e.idx === 6);
+    expect(e6).toBeDefined();
+    expect(e6.tag).toMatch(/^0006_workshop_schedules$/);
+    const sql6 = readFileSync(resolve(`drizzle/${e6.tag}.sql`), "utf8");
+    expect(sql6).toMatch(/workshop_schedules/);
+    expect(sql6).toMatch(/open_intervals/);
+    expect(sql6).toMatch(/"day_of_week" BETWEEN 0 AND 6/);
   });
 });
 

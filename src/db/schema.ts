@@ -4,7 +4,9 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
+  smallint,
   timestamp,
   uuid,
   varchar,
@@ -211,3 +213,37 @@ export const users = pgTable(
 
 export type UserRow = typeof users.$inferSelect;
 export type UserInsert = typeof users.$inferInsert;
+
+/**
+ * workshop_schedules (T-036b) — DB-backed per-day operating hours.
+ *
+ * INV-01/05/06: defaults stay parametrizable in src/config/workshopSchedule.ts
+ * (DEFAULT_OPERATING_INTERVALS only). Day 0=Sun..6=Sat, CHECK 0..6 enforces
+ * valid dow. open_intervals is jsonb of [{start,end} HH:mm]; consumers run
+ * validateIntervals before write. updated_at bumped via $onUpdate on Drizzle
+ * writes; raw-SQL writes bypass it — see other tables for same caveat.
+ *
+ * No FKs: this table is a singleton reference (max 7 rows); no relation
+ * to clientes/vehiculos/servicios/turnos/users. No EXCLUDE: schedule
+ * mutation is single-admin writer, last-write-wins is acceptable.
+ */
+export const workshopSchedules = pgTable(
+  "workshop_schedules",
+  {
+    dayOfWeek: smallint("day_of_week").primaryKey().notNull(),
+    openIntervals: jsonb("open_intervals").$type<unknown[]>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    check(
+      "workshop_schedules_day_of_week_check",
+      sql`${table.dayOfWeek} BETWEEN 0 AND 6`,
+    ),
+  ],
+);
+
+export type WorkshopScheduleRow = typeof workshopSchedules.$inferSelect;
+export type WorkshopScheduleInsert = typeof workshopSchedules.$inferInsert;
