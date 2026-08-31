@@ -306,4 +306,26 @@ describe("GET /api/appointments — CLIENTE", () => {
     expect(r.status).toBe(200); const last = listAppointmentsMock.mock.calls.at(-1) as unknown as [unknown, Record<string, unknown>];
     expect(last[1].page).toBe(2); expect(last[1].offset).toBe(999);
   });
+
+  // H-19 / Trace 2 — CLIENTE own pending reuses T-033; service contract: listAppointments
+  // injects customerId=authUser.id for CLIENTE (mocked here, so we verify the route passes
+  // parsed.query with status=PENDIENTE plus the CLIENTE authUser that the service would scope on).
+  it("CLIENTE own pending 200 — status=PENDIENTE scopes customerId", async () => {
+    const r = await GET(getReq("http://localhost/api/appointments?status=PENDIENTE"));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { data: Record<string, unknown>[]; pagination: Record<string, unknown> };
+    expect(j).toHaveProperty("data");
+    expect(j.pagination).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
+    expect(listAppointmentsMock).toHaveBeenCalledTimes(1);
+    const args = listAppointmentsMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>, typeof CLIENTE];
+    expect(args[1].status).toBe("PENDIENTE");
+    // Route hands the CLIENTE authUser to the service, which is responsible for
+    // injecting customerId=authUser.id per AppointmentService.listAppointments (§4.5).
+    expect(args[2]).toEqual(CLIENTE);
+    expect(args[2].role).toBe("CLIENTE");
+    expect(args[2].id).toBe(CLIENTE.id);
+    // INV-08 negative: no snake_case leak in DTO
+    expect(j.data[0]).not.toHaveProperty("estado");
+    expect(j.data[0]).not.toHaveProperty("fecha_hora_inicio");
+  });
 });

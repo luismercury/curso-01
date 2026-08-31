@@ -1,3 +1,4 @@
+// H-19 anchor: T-036 admin pending view reuses T-033 filter via `?status=PENDIENTE`. T-033 archived 2026-08-28; delta NONE.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/db", () => ({ db: {} }));
@@ -58,5 +59,44 @@ describe("GET /api/admin/appointments", () => {
     const r = await GET(new Request("http://localhost/api/admin/appointments", { method: "GET" }));
     const j = (await r.json()) as { data: Record<string, unknown>[] };
     expect(j.data[0]).toHaveProperty("customerId"); expect(j.data[0]).not.toHaveProperty("cliente_id");
+  });
+
+  // H-19 / Trace 1 — admin pending view reuses T-033 filter; pagination H-28; INV-08 camelCase.
+  it("ADMIN pending view — status=PENDIENTE 200", async () => {
+    const r = await GET(new Request("http://localhost/api/admin/appointments?status=PENDIENTE&page=1&limit=20&sort=startAt:asc", { method: "GET" }));
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { data: Record<string, unknown>[]; pagination: Record<string, unknown> };
+    expect(j).toHaveProperty("data");
+    expect(j.pagination).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
+    expect(listMock).toHaveBeenCalledTimes(1);
+    const args = listMock.mock.calls[0] as unknown as [unknown, Record<string, unknown>, typeof ADMIN];
+    expect(args[1].status).toBe("PENDIENTE");
+    expect(args[1].sort).toBe("startAt:asc");
+    expect(args[2].role).toBe("ADMINISTRADOR");
+    // INV-08 negative: no snake_case leak in DTO
+    expect(j.data[0]).not.toHaveProperty("estado");
+    expect(j.data[0]).not.toHaveProperty("fecha_hora_inicio");
+  });
+
+  // H-19 / Traces 3+4 — precedence 401→403→400 with status=PENDIENTE&limit=101.
+  it("pending precedence — 401→403→400 with status=PENDIENTE&limit=101", async () => {
+    const url = "http://localhost/api/admin/appointments?status=PENDIENTE&limit=101";
+    // 401 wins over 400: unauth returns 401 before validation
+    authMock.mockRejectedValue(new UnauthorizedError("Missing token"));
+    const r401 = await GET(new Request(url, { method: "GET" }));
+    expect(r401.status).toBe(401);
+    expect(((await r401.json()) as { error: { code: string } }).error.code).toBe("UNAUTHORIZED");
+    // 403 wins over 400: CLIENTE on admin returns 403 before validation
+    authMock.mockResolvedValue(CLIENTE);
+    const r403 = await GET(new Request(url, { method: "GET" }));
+    expect(r403.status).toBe(403);
+    expect(((await r403.json()) as { error: { code: string } }).error.code).toBe("FORBIDDEN");
+    // ADMIN with limit=101 reaches Zod validation → 400 VALIDATION_ERROR
+    authMock.mockResolvedValue(ADMIN);
+    const r400 = await GET(new Request(url, { method: "GET" }));
+    expect(r400.status).toBe(400);
+    expect(((await r400.json()) as { error: { code: string } }).error.code).toBe("VALIDATION_ERROR");
+    // listMock only reachable for ADMIN 200 path (none in this precedence test)
+    expect(listMock).not.toHaveBeenCalled();
   });
 });
