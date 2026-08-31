@@ -82,3 +82,27 @@ The system MUST exclude candidates where `start+duration>finIntervaloOperativo` 
 - GIVEN open weekday, `durationMinutes=90`, mocked `[]`
 - WHEN `generateSlotsForDate`/`getAvailableSlots`/wrapper executed
 - THEN `11:30` and beyond-close mirror absent, `10:30+90==12:00` present; `calculateEndAndValidate({start:BA 11:30,duration:90})` is `valid=false`
+
+### Requirement: DB-Backed Operating Hours Consumption (t036b-admin-schedule)
+
+The system SHALL resolve operating hours per-request via `await getWorkshopConfig(db)` (merging `workshop_schedules` rows with parametrizable defaults, `timezone=America/Argentina/Buenos_Aires` DST-aware via `getBaDayUtcRange` / `baWallTimeToUtcDate`) for `GET /api/availability` slot generation and `POST /api/appointments` `fechaHoraFin <= finIntervaloOperativo` inclusive `<=` check. The system SHALL NOT cache globally; a patched schedule SHALL reflect on the next request. Creation outside patched intervals SHALL return `400 {error:{code:VALIDATION_ERROR}}` via `calculateEndAndValidate`, distinct from `409` capacity rejection, and SHALL NOT execute `countActiveOverlappingForUpdate`.
+
+#### Scenario: GET availability reflects patched schedule
+- GIVEN ADMINISTRADOR patched Tuesday to `[{09:00-10:00}]` and `service duration=60`
+- WHEN `GET /api/availability?date=2026-09-08&serviceId=...` (Tuesday BA)
+- THEN `200 {availableSlots: ["09:00"]}` (was `12` before) via `getWorkshopConfig(db)`
+
+#### Scenario: Creation outside patched interval rejected
+- GIVEN same patched Tuesday `09:00-10:00` close
+- WHEN `POST /api/appointments` with `startDateTime=2026-09-08T11:00:00-03:00` duration 60 (`fin=12:00 > finIntervaloOperativo 10:00`)
+- THEN `400 {error:{code:VALIDATION_ERROR}}` and no `countActiveOverlappingForUpdate` executed
+
+#### Scenario: BA DST per-request resolution
+- GIVEN patched schedule near BA DST transition
+- WHEN `GET /api/availability` via `getBaDayUtcRange` then `baWallTimeToUtcDate` oracle
+- THEN UTC range matches oracle and slot count matches patched intervals
+
+#### Scenario: Two consecutive requests re-call provider (no global cache)
+- GIVEN consecutive `GET /api/availability` calls against the same `db`
+- WHEN `getWorkshopConfig(db)` is instrumented
+- THEN it is invoked once per request (no module/global cache)
