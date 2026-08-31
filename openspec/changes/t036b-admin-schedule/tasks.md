@@ -27,15 +27,15 @@ Suggested split: PR #1 foundation → PR #2 mutation API → PR #3 reflection
 
 ## Phase 2: Provider (PR #2)
 
-- [ ] 2.1 Add `getWorkshopConfig(db: DbOrTx): Promise<WorkshopConfig>` to `src/config/workshopConfig.ts` — no global cache; keep frozen fallback.
-- [ ] 2.2 Reuse `validateIntervals` guard before upsert; export `WorkshopScheduleInput` type.
-- [ ] 2.3 Provider unit — empty table → Mon-Fri defaults; partial week overrides that dow; Sat `[]`.
+- [x] 2.1 Add `getWorkshopConfig(db: DbOrTx): Promise<WorkshopConfig>` to `src/config/workshopConfig.ts` — no global cache; keep frozen fallback.
+- [x] 2.2 Reuse `validateIntervals` guard before upsert; export `WorkshopScheduleInput` type.
+- [x] 2.3 Provider unit — empty table → Mon-Fri defaults; partial week overrides that dow; Sat `[]`.
 
 ## Phase 3: PATCH Route (PR #2)
 
-- [ ] 3.1 Create `src/app/api/admin/schedule/route.ts` — `requireAuth→assertRole(ADMINISTRADOR)` before parse; Zod strict + `superRefine(validateIntervals)`; 401/403/400/200; `dynamic='force-dynamic'`.
-- [ ] 3.2 Route tests — 401 no token, 403 CLIENTE no write, 400 overlap, 400 `start>=end`/unsorted, 200 ADMIN persists, idempotent repatch.
-- [ ] 3.3 No snake_case leak — `dayOfWeek`/`openIntervals` only; `error.code` envelope preserved.
+- [x] 3.1 Create `src/app/api/admin/schedule/route.ts` — `requireAuth→assertRole(ADMINISTRADOR)` before parse; Zod strict + `superRefine(validateIntervals)`; 401/403/400/200; `dynamic='force-dynamic'`.
+- [x] 3.2 Route tests — 401 no token, 403 CLIENTE no write, 400 overlap, 400 `start>=end`/unsorted, 200 ADMIN persists, idempotent repatch.
+- [x] 3.3 No snake_case leak — `dayOfWeek`/`openIntervals` only; `error.code` envelope preserved.
 
 ## Phase 4: Consumer Swaps (PR #3)
 
