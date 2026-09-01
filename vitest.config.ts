@@ -46,6 +46,10 @@ export default defineConfig({
             "src/app/(customer)/vehicles/error.test.tsx",
             "src/app/(customer)/appointments/new/loading.test.tsx",
             "src/app/(customer)/appointments/new/error.test.tsx",
+            // T-042 e2e artifact uses @playwright/test which is not
+            // provisioned in this repo. Excluded until a Playwright
+            // harness is added.
+            "tests/e2e/**",
           ],
         },
       },

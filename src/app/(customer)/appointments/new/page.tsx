@@ -1,5 +1,5 @@
 /**
- * RSC shell for `/(customer)/appointments/new` — T-041.
+ * RSC shell for `/(customer)/appointments/new` — T-041 + T-042.
  *
  * Mirrors T-040 /services flow:
  *   1. `auth()` → redirect /login if null (INV-03 defensive).
@@ -12,14 +12,21 @@
  *      `selectedDate` (tampered/past/overflow → null, banner hidden).
  *   5. `closedDows: number[]` derived from `config.operatingHours` empty
  *      intervals (0=Sun..6=Sat).
- *   6. Render either CTA → /services or the `<DateSelector>` compound with
- *      only primitives as props. The island owns URL writes
- *      (`useSearchParams` + `router.push`) and the Continue href (sibling
- *      preservation for T-042/T-043).
+ *   6. T-042: when BOTH `selectedService` AND `selectedDate` resolve, a
+ *      third awaited call to `getAvailableSlotsForDate` (noon-anchored,
+ *      single bulk fetch via the same adapter as `/api/availability`)
+ *      yields `availableSlots: string[]` of bookable HH:mm. Only
+ *      primitives cross to the client island (INV-08). Otherwise
+ *      `availableSlots = null` — no domain call, no 500.
+ *   7. Render either CTA → /services, the `<DateSelector>` compound
+ *      alone, or `<DateSelector>` + `<AvailabilitySlots>` once a valid
+ *      date is paired with a valid service. The islands own URL writes
+ *      (`useSearchParams` + `router.push`) and sibling preservation
+ *      (serviceId / date / vehicleId) for T-042/T-043.
  *
  * PR1 shipped an inline `<form method=get>` placeholder. PR2 wires the
- * `<DateSelector>` compound (useSearchParams + router.push, no form
- * submit, no Server Actions, no localStorage).
+ * `<DateSelector>` compound. T-042 PR-A wires the conditional fetch +
+ * CSS; T-042 PR-B wires the `<AvailabilitySlots>` compound.
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -37,10 +44,17 @@ import {
   isPastBa,
 } from "@/lib/validators/date";
 import { serviceIdSchema } from "@/lib/validators/service";
+import { findActiveTurnosByDateRange } from "@/db/repositories/turnos";
+import {
+  getAvailableSlotsForDate,
+  type FetchActiveTurnos,
+} from "@/services/availability/availabilityService";
+import { formatSlotsAsHHmm } from "@/services/availability/slotGenerator";
 import type { ServicioDTO } from "@/db/mappers/servicio";
 import type { ServiceDTOJson } from "@/lib/api/services";
 import styles from "./appointments.module.css";
 import { DateSelector } from "./_components/DateSelector";
+import { AvailabilitySlots } from "./_components/AvailabilitySlots";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -161,6 +175,35 @@ export default async function AppointmentsNewPage({
   // Preserve sibling `?vehicleId=` so T-043 (form) can read it later.
   const vehicleId = typeof params.vehicleId === "string" ? params.vehicleId : null;
 
+  // T-042 conditional availability fetch (design §A). Only runs when
+  // both `selectedService` and `selectedDate` resolved upstream — no
+  // fetch for tampered/inactive serviceId, invalid date, past/overflow,
+  // or missing pair. Noon UTC anchor dodges DST midnight shifts and
+  // guarantees `formatSlotsAsHHmm` resolves to the BA calendar day the
+  // user picked. Adapter signature mirrors `/api/availability/route.ts:96-97`
+  // so we keep a single bulk-fetch path.
+  let availableSlots: string[] | null = null;
+  if (selectedService && selectedDate) {
+    const noonDate = new Date(`${selectedDate}T12:00:00.000Z`);
+    const fetchActiveTurnos: FetchActiveTurnos = (range) =>
+      findActiveTurnosByDateRange(db, range);
+    const slots = await getAvailableSlotsForDate({
+      date: noonDate,
+      durationMinutes: selectedService.durationMinutes,
+      config: {
+        timezone: tz,
+        slotStepMinutes: config.slotStepMinutes,
+        capacityPerSlot: config.capacityPerSlot,
+        operatingHours: (config.operatingHours ?? {}) as Record<
+          number,
+          TimeInterval[]
+        >,
+      },
+      fetchActiveTurnos,
+    });
+    availableSlots = formatSlotsAsHHmm(slots, tz);
+  }
+
   return (
     <section aria-labelledby="appointments-new-heading">
       <header className={styles.pageHeader}>
@@ -191,6 +234,28 @@ export default async function AppointmentsNewPage({
         <DateSelector.ClearButton />
         <DateSelector.SelectedBanner />
       </DateSelector>
+
+      {/* T-042 AvailabilitySlots compound — only renders when the date
+          branch is valid. `availableSlots` is non-null here because the
+          wrap condition matches the fetch condition. The island owns
+          URL writes for `?slot=HH:mm` (slotSchema guard + includes
+          check) and re-renders on URL change. */}
+      {selectedDate && availableSlots !== null ? (
+        <div className={styles.slotSection}>
+          <AvailabilitySlots
+            slots={availableSlots}
+            date={selectedDate}
+            serviceId={selectedService.id}
+            vehicleId={vehicleId}
+            closedDows={closedDows}
+            timezone={tz}
+          >
+            <AvailabilitySlots.Grid />
+            <AvailabilitySlots.Empty />
+            <AvailabilitySlots.SelectedBanner />
+          </AvailabilitySlots>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -127,3 +127,72 @@
   font-size: 0.875rem;
   color: var(--color-fg-muted);
 }
+
+/* T-042 availability grid (AvailabilitySlots compound).
+ * Mirrors the DateSelector token surface: native <button type="button">
+ * styled to look like the existing .input/.banner siblings. Selected
+ * state uses .slotSelected as its own selector (composition pattern,
+ * not a boolean prop on .slotButton).
+ *
+ * INV-01 / INV-05 / INV-08: visuals are stateless — the parent island
+ * owns URL writes via slotSchema-validated `?slot=`. No business logic
+ * in CSS. */
+.slotSection {
+  margin-top: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+.slotHeading {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-fg);
+}
+.slotGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
+  gap: var(--space-2);
+}
+.slotButton {
+  appearance: none;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  text-align: center;
+}
+.slotButton:hover {
+  border-color: var(--color-fg-strong);
+}
+.slotButton:focus {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 1px;
+}
+.slotButton:focus:not(:focus-visible) {
+  outline: none;
+}
+.slotSelected {
+  /* Composed onto .slotButton when the slot matches the URL `?slot=`.
+   * Selector stays separate so we never grow a boolean prop on the
+   * button itself (vercel-composition-patterns). */
+  composes: slotButton;
+  border-color: var(--color-fg-strong);
+  background: var(--color-fg);
+  color: var(--color-bg);
+}
+.slotSelected:hover {
+  border-color: var(--color-fg-strong);
+}
+.slotEmpty {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-muted);
+  font-size: 0.875rem;
+  text-align: center;
+}

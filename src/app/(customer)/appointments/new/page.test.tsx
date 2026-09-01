@@ -37,6 +37,9 @@ const mockRedirect = vi.fn((url: string) => {
 });
 const mockList = vi.fn();
 const mockConfig = vi.fn();
+const mockFindActive = vi.fn();
+const mockGetSlots = vi.fn();
+const mockFormatSlots = vi.fn();
 
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => mockRedirect(url),
@@ -48,6 +51,22 @@ vi.mock("@/services/servicioService", () => ({
 }));
 vi.mock("@/config/workshopConfig", () => ({
   getWorkshopConfig: (...args: unknown[]) => mockConfig(...(args as never[])),
+}));
+// T-042 — page.tsx now imports server-only modules for the conditional
+// availability fetch. Mock them so vitest never loads the real
+// `server-only` package, which throws outside a server context.
+vi.mock("@/db/repositories/turnos", () => ({
+  findActiveTurnosByDateRange: (...args: unknown[]) =>
+    mockFindActive(...(args as never[])),
+}));
+vi.mock("@/services/availability/availabilityService", () => ({
+  getAvailableSlotsForDate: (...args: unknown[]) =>
+    mockGetSlots(...(args as never[])),
+  FetchActiveTurnos: class {},
+}));
+vi.mock("@/services/availability/slotGenerator", () => ({
+  formatSlotsAsHHmm: (slots: unknown, tz: unknown) =>
+    mockFormatSlots(slots, tz),
 }));
 
 async function loadPage() {
@@ -319,5 +338,186 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
     await expect(
       Page({ searchParams: Promise.resolve({}) }),
     ).rejects.toThrow();
+  });
+});
+
+describe("AppointmentsNewPage — T-042 availability fetch + render", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.clearAllMocks());
+
+  it("valid ?serviceId= + valid ?date= -> fetches slots, renders AvailabilitySlots with primitives", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true, durationMinutes: 60 })]);
+    mockGetSlots.mockResolvedValueOnce([
+      { start: new Date("2026-09-09T12:00:00.000Z"), end: new Date("2026-09-09T13:00:00.000Z") },
+      { start: new Date("2026-09-09T12:30:00.000Z"), end: new Date("2026-09-09T13:30:00.000Z") },
+    ]);
+    mockFormatSlots.mockImplementation(
+      (slots: Array<{ start: Date }>) =>
+        slots.map((s) => {
+          const hh = String(s.start.getUTCHours()).padStart(2, "0");
+          const mm = String(s.start.getUTCMinutes()).padStart(2, "0");
+          return `${hh}:${mm}`;
+        }),
+    );
+    const Page = await loadPage();
+    const futureYmd = addBaDays(
+      getTodayBaYmd("America/Argentina/Buenos_Aires"),
+      7,
+      "America/Argentina/Buenos_Aires",
+    );
+    const tree = await Page({
+      searchParams: Promise.resolve({ serviceId: ID_A, date: futureYmd }),
+    });
+    expect(tree).toBeDefined();
+    const json = stringifyTree(tree);
+    // AvailabilitySlots compound is rendered (Grid + Empty + SelectedBanner).
+    expect(json).toContain("AvailabilitySlotsImpl");
+    expect(json).toContain("AvailabilitySlotsGrid");
+    expect(json).toContain("AvailabilitySlotsEmpty");
+    expect(json).toContain("AvailabilitySlotsSelectedBanner");
+    // Domain call invoked exactly once with the noon anchor and the
+    // WorkshopConfig-shaped `config` slice.
+    expect(mockGetSlots).toHaveBeenCalledTimes(1);
+    const slotsCall = mockGetSlots.mock.calls[0]?.[0] as {
+      date: Date;
+      durationMinutes: number;
+      config: { timezone: string; slotStepMinutes: number; capacityPerSlot: number };
+      fetchActiveTurnos: unknown;
+    };
+    expect(slotsCall.date.toISOString()).toBe(`${futureYmd}T12:00:00.000Z`);
+    expect(slotsCall.durationMinutes).toBe(60);
+    expect(slotsCall.config.timezone).toBe("America/Argentina/Buenos_Aires");
+    expect(slotsCall.config.slotStepMinutes).toBe(30);
+    expect(slotsCall.config.capacityPerSlot).toBe(1);
+    // Adapter wiring is a one-line delegate to the repository — assert the
+    // page passes a callable fetchActiveTurnos without depending on the
+    // mocked availabilityService to invoke it.
+    expect(typeof slotsCall.fetchActiveTurnos).toBe("function");
+    // INV-08 — primitive props cross to the client island only. Mocked
+    // formatSlotsAsHHmm produces UTC strings; the page propagates them
+    // verbatim to AvailabilitySlots so the assertion matches the mock.
+    expect(json).toContain("12:00");
+    expect(json).toContain("12:30");
+    for (const forbidden of [
+      "fechaHoraInicio",
+      "fechaHoraFin",
+      "fecha",
+      "cliente_id",
+      "duracionMinutos",
+    ]) {
+      expect(json, `must not contain ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it("tampered ?date= -> null selectedDate -> no domain call (GWT Tampered)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true, durationMinutes: 60 })]);
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({ serviceId: ID_A, date: "2026-02-30" }),
+    });
+    const json = stringifyTree(tree);
+    expect(json).toContain("DateSelectorImpl");
+    expect(json).not.toContain("AvailabilitySlotsImpl");
+    expect(mockFindActive).not.toHaveBeenCalled();
+    expect(mockGetSlots).not.toHaveBeenCalled();
+  });
+
+  it("inactive ?serviceId= -> no domain call (GWT Tampered inactive)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: false })]);
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({
+        serviceId: ID_A,
+        date: addBaDays(getTodayBaYmd("America/Argentina/Buenos_Aires"), 7, "America/Argentina/Buenos_Aires"),
+      }),
+    });
+    const json = stringifyTree(tree);
+    expect(json).toContain("Select a service first");
+    expect(json).not.toContain("AvailabilitySlotsImpl");
+    expect(mockFindActive).not.toHaveBeenCalled();
+    expect(mockGetSlots).not.toHaveBeenCalled();
+  });
+
+  it("closed Sunday -> getAvailableSlotsForDate returns [] (GWT Closed)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true, durationMinutes: 60 })]);
+    mockGetSlots.mockResolvedValueOnce([]);
+    mockFormatSlots.mockReturnValueOnce([]);
+    const Page = await loadPage();
+    // 2026-09-06 is a Sunday — closed under default operatingHours.
+    const tree = await Page({
+      searchParams: Promise.resolve({ serviceId: ID_A, date: "2026-09-06" }),
+    });
+    expect(tree).toBeDefined();
+    // Domain still called; the empty-grid resolution happens inside the
+    // island (`Empty` chooses "Closed on Sunday" copy because
+    // closedDows.includes(getBaDow(Sunday))).
+    expect(mockGetSlots).toHaveBeenCalledTimes(1);
+    const json = stringifyTree(tree);
+    expect(json).toContain("AvailabilitySlotsImpl");
+    // Empty island receives `slots=[]` — copy resolved client-side.
+    expect(json).toContain("[0,6]");
+  });
+
+  it("valid 90min duration -> 11:30+90>12:00 rejected by domain (INV-05)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true, durationMinutes: 90 })]);
+    mockFindActive.mockResolvedValueOnce([]);
+    // Domain filters out the 11:30 slot because 11:30 + 90min exceeds 12:00.
+    // We mirror the pure core by returning only the slots that survive.
+    mockGetSlots.mockResolvedValueOnce([
+      { start: new Date("2026-09-09T12:00:00.000Z"), end: new Date("2026-09-09T13:30:00.000Z") },
+    ]);
+    mockFormatSlots.mockImplementationOnce(
+      (slots: Array<{ start: Date }>) =>
+        slots.map((s) => {
+          const hh = String(s.start.getUTCHours()).padStart(2, "0");
+          const mm = String(s.start.getUTCMinutes()).padStart(2, "0");
+          return `${hh}:${mm}`;
+        }),
+    );
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({ serviceId: ID_A, date: "2026-09-09" }),
+    });
+    expect(mockGetSlots).toHaveBeenCalledTimes(1);
+    const call = mockGetSlots.mock.calls[0]?.[0] as { durationMinutes: number };
+    expect(call.durationMinutes).toBe(90);
+    const json = stringifyTree(tree);
+    expect(json).toContain("AvailabilitySlotsImpl");
+    // The mocked domain returned exactly one slot (12:00Z = 09:00 BA
+    // wall). formatSlotsAsHHmm is also mocked and emits UTC strings, so
+    // the value crossing the boundary is the verbatim mock output. The
+    // assertion verifies the page propagates the format result to the
+    // client island without mutation — INV-08 primitive-only contract.
+    expect(json).toContain("12:00");
+  });
+
+  it("auth still gates the availability fetch (INV-03)", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const Page = await loadPage();
+    await expect(
+      Page({
+        searchParams: Promise.resolve({
+          serviceId: ID_A,
+          date: addBaDays(
+            getTodayBaYmd("America/Argentina/Buenos_Aires"),
+            7,
+            "America/Argentina/Buenos_Aires",
+          ),
+        }),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT:/login");
+    expect(mockFindActive).not.toHaveBeenCalled();
+    expect(mockGetSlots).not.toHaveBeenCalled();
+    expect(mockFormatSlots).not.toHaveBeenCalled();
   });
 });
