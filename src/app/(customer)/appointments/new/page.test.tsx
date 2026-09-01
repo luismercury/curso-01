@@ -163,7 +163,7 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
     }
   });
 
-  it("valid ?serviceId= matching active service -> renders DateSelector shell, no 500", async () => {
+  it("valid ?serviceId= matching active service -> renders DateSelector compound, no 500", async () => {
     mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
     mockConfig.mockResolvedValueOnce(defaultConfig());
     mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true })]);
@@ -174,8 +174,14 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
     expect(tree).toBeDefined();
     const json = stringifyTree(tree);
     expect(json).toContain("Oil Change");
-    // Form/date input rendered
-    expect(json).toContain("appointments-new-form");
+    // PR2: the page renders <DateSelector> (the compound function ref),
+    // not the PR1 <form method=get> placeholder. The island renders the
+    // input + banner + clear button — those are verified in detail by
+    // DateSelector.test.tsx (jsdom project).
+    expect(json).toContain("DateSelectorImpl");
+    expect(json).toContain("DateSelectorInput");
+    expect(json).toContain("DateSelectorSelectedBanner");
+    expect(json).toContain("DateSelectorClearButton");
   });
 
   it("missing serviceId -> CTA to /services, no DateSelector (GWT 8)", async () => {
@@ -187,8 +193,8 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
     const json = stringifyTree(tree);
     expect(json).toContain("Select a service first");
     expect(json).toContain("/services");
-    // DateSelector form must NOT render for missing serviceId.
-    expect(json).not.toContain("appointments-new-form");
+    // DateSelector must NOT render for missing serviceId — no orphaned input.
+    expect(json).not.toContain("DateSelectorImpl");
   });
 
   it("inactive ?serviceId= -> CTA to /services, no DateSelector (GWT 8)", async () => {
@@ -201,7 +207,7 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
     });
     const json = stringifyTree(tree);
     expect(json).toContain("Select a service first");
-    expect(json).not.toContain("appointments-new-form");
+    expect(json).not.toContain("DateSelectorImpl");
   });
 
   it("tampered ?date=garbage -> null selectedDate, no 500 (GWT 2)", async () => {
@@ -214,7 +220,8 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
     });
     expect(tree).toBeDefined();
     const json = stringifyTree(tree);
-    expect(json).not.toContain("appointments-new-banner");
+    // Banner is hidden when date is null (tampered / past / overflow).
+    expect(json).not.toContain("date-selector-banner");
   });
 
   it("overflow ?date=2026-02-30 -> null selectedDate, no 500 (GWT 2)", async () => {
@@ -226,7 +233,7 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
       searchParams: Promise.resolve({ serviceId: ID_A, date: "2026-02-30" }),
     });
     const json = stringifyTree(tree);
-    expect(json).not.toContain("appointments-new-banner");
+    expect(json).not.toContain("date-selector-banner");
   });
 
   it("?date=2026-13-40 -> null selectedDate, no 500", async () => {
@@ -238,7 +245,7 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
       searchParams: Promise.resolve({ serviceId: ID_A, date: "2026-13-40" }),
     });
     const json = stringifyTree(tree);
-    expect(json).not.toContain("appointments-new-banner");
+    expect(json).not.toContain("date-selector-banner");
   });
 
   it("past ?date=2020-01-01 -> null selectedDate, no banner (GWT past scenario)", async () => {
@@ -250,7 +257,7 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
       searchParams: Promise.resolve({ serviceId: ID_A, date: "2020-01-01" }),
     });
     const json = stringifyTree(tree);
-    expect(json).not.toContain("appointments-new-banner");
+    expect(json).not.toContain("date-selector-banner");
   });
 
   it("future-beyond-max ?date=2099-01-01 -> null selectedDate (max bound guard)", async () => {
@@ -262,10 +269,10 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
       searchParams: Promise.resolve({ serviceId: ID_A, date: "2099-01-01" }),
     });
     const json = stringifyTree(tree);
-    expect(json).not.toContain("appointments-new-banner");
+    expect(json).not.toContain("date-selector-banner");
   });
 
-  it("valid ?date= + ?vehicleId= -> Continue href preserves both params (sibling preservation)", async () => {
+  it("valid ?date= + ?vehicleId= -> DateSelector receives vehicleId + date as props (sibling preservation)", async () => {
     mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
     mockConfig.mockResolvedValueOnce(defaultConfig());
     mockList.mockResolvedValueOnce([svcDto()]);
@@ -279,9 +286,12 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
       }),
     });
     const json = stringifyTree(tree);
-    expect(json).toContain("vehicleId=" + ID_V);
-    expect(json).toContain("date=" + futureYmd);
-    expect(json).toContain("serviceId=" + ID_A);
+    // PR2: the page no longer builds `continueHref` itself — it passes
+    // the props through to the DateSelector compound. The island builds
+    // the href and preserves siblings (covered in DateSelector.test.tsx).
+    expect(json).toContain(ID_V);
+    expect(json).toContain(futureYmd);
+    expect(json).toContain(ID_A);
   });
 
   it("closedDows = [0, 6] derived from Mon-Fri default + Sat/Sun []", async () => {
@@ -293,10 +303,12 @@ describe("AppointmentsNewPage — RSC shell (T-041 PR1)", () => {
       searchParams: Promise.resolve({ serviceId: ID_A }),
     });
     const json = stringifyTree(tree);
-    // The hint copy mentions "Sunday" + "Saturday" — only when closedDows
-    // includes [0, 6].
-    expect(json).toContain("Sunday");
-    expect(json).toContain("Saturday");
+    // PR2: the closedDows array `[0, 6]` is passed as a prop to the
+    // DateSelector compound. It serializes as the JSON literal `[0,6]`
+    // in the React element tree. The human-readable hint
+    // "Closed: Sundays, Saturdays." is rendered inside the island and
+    // verified by DateSelector.test.tsx (jsdom project).
+    expect(json).toContain("[0,6]");
   });
 
   it("DB failure -> re-throws so error.tsx boundary catches", async () => {

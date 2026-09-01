@@ -1,5 +1,5 @@
 /**
- * RSC shell for `/(customer)/appointments/new` — T-041 PR1 foundation.
+ * RSC shell for `/(customer)/appointments/new` — T-041.
  *
  * Mirrors T-040 /services flow:
  *   1. `auth()` → redirect /login if null (INV-03 defensive).
@@ -12,11 +12,14 @@
  *      `selectedDate` (tampered/past/overflow → null, banner hidden).
  *   5. `closedDows: number[]` derived from `config.operatingHours` empty
  *      intervals (0=Sun..6=Sat).
- *   6. Render either CTA → /services or the date input + SelectedContext
- *      banner. `?vehicleId=` preserved on Continue href for T-043.
+ *   6. Render either CTA → /services or the `<DateSelector>` compound with
+ *      only primitives as props. The island owns URL writes
+ *      (`useSearchParams` + `router.push`) and the Continue href (sibling
+ *      preservation for T-042/T-043).
  *
- * PR1 ships an inline `<form method=get>` placeholder. PR2 replaces it
- * with the `<DateSelector>` compound (useSearchParams + router.push).
+ * PR1 shipped an inline `<form method=get>` placeholder. PR2 wires the
+ * `<DateSelector>` compound (useSearchParams + router.push, no form
+ * submit, no Server Actions, no localStorage).
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -37,6 +40,7 @@ import { serviceIdSchema } from "@/lib/validators/service";
 import type { ServicioDTO } from "@/db/mappers/servicio";
 import type { ServiceDTOJson } from "@/lib/api/services";
 import styles from "./appointments.module.css";
+import { DateSelector } from "./_components/DateSelector";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -157,11 +161,6 @@ export default async function AppointmentsNewPage({
   // Preserve sibling `?vehicleId=` so T-043 (form) can read it later.
   const vehicleId = typeof params.vehicleId === "string" ? params.vehicleId : null;
 
-  // Continue href — T-042 will read `?serviceId=&date=` (no coupling).
-  const continueHref = vehicleId
-    ? `/appointments/new?serviceId=${selectedService.id}&vehicleId=${vehicleId}&date=${selectedDate ?? ""}`
-    : `/appointments/new?serviceId=${selectedService.id}&date=${selectedDate ?? ""}`;
-
   return (
     <section aria-labelledby="appointments-new-heading">
       <header className={styles.pageHeader}>
@@ -173,72 +172,25 @@ export default async function AppointmentsNewPage({
         </p>
       </header>
 
-      {/* PR1 placeholder input. PR2 replaces with <DateSelector> compound
-          (useSearchParams + router.push, no form submit). */}
-      <form
-        method="get"
-        action="/appointments/new"
-        className={styles.field}
-        data-testid="appointments-new-form"
+      {/* DateSelector compound — URL-canonical, no Server Actions, no
+          localStorage, no useEffect fetch. The island re-validates ?date=
+          with the same checks this page applies (defense in depth) so the
+          SSR-resolved `date` prop and the URL state never desync. Sibling
+          preservation (serviceId / vehicleId) is owned by the island via
+          `URLSearchParams(searchParams.toString())`. */}
+      <DateSelector
+        date={selectedDate}
+        min={todayBa}
+        max={maxBa}
+        closedDows={closedDows}
+        timezone={tz}
+        serviceId={selectedService.id}
+        vehicleId={vehicleId}
       >
-        <label htmlFor="date-input" className={styles.fieldLabel}>
-          Date
-        </label>
-        <input
-          id="date-input"
-          name="date"
-          type="date"
-          min={todayBa}
-          max={maxBa}
-          defaultValue={selectedDate ?? ""}
-          className={styles.input}
-          aria-describedby="date-hint"
-          data-testid="appointments-new-date-input"
-        />
-        <input type="hidden" name="serviceId" value={selectedService.id} />
-        {vehicleId && (
-          <input type="hidden" name="vehicleId" value={vehicleId} />
-        )}
-        <p id="date-hint" className={styles.hint}>
-          Pick any day from today through {maxBa} ({DATE_MAX_DAYS}-day window).
-          {closedDows.length > 0
-            ? ` Closed: ${closedDows.map(dowLabel).join(", ")}.`
-            : ""}
-        </p>
-        <button
-          type="submit"
-          className={styles.input}
-          data-testid="appointments-new-submit"
-        >
-          Apply
-        </button>
-      </form>
-
-      {selectedDate && (
-        <section
-          className={styles.banner}
-          role="status"
-          aria-live="polite"
-          aria-labelledby="selected-date-banner-title"
-          data-testid="appointments-new-banner"
-        >
-          <div className={styles.bannerBody}>
-            <h2 id="selected-date-banner-title" className={styles.bannerTitle}>
-              Selected: {selectedDate}
-            </h2>
-            <p className={styles.bannerMeta}>
-              Continue to see available time slots.
-            </p>
-          </div>
-          <Link
-            href={continueHref}
-            className={styles.input}
-            data-testid="appointments-new-continue"
-          >
-            Continue
-          </Link>
-        </section>
-      )}
+        <DateSelector.Input />
+        <DateSelector.ClearButton />
+        <DateSelector.SelectedBanner />
+      </DateSelector>
     </section>
   );
 }
@@ -253,9 +205,4 @@ function toJson(dto: ServicioDTO): ServiceDTOJson {
     createdAt: dto.createdAt.toISOString(),
     updatedAt: dto.updatedAt.toISOString(),
   };
-}
-
-/** Render a day-of-week number (0=Sun..6=Sat) as a long label. */
-function dowLabel(dow: number): string {
-  return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dow] ?? `Day ${dow}`;
 }
