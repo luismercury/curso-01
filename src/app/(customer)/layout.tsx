@@ -47,6 +47,9 @@ export default async function CustomerLayout({
         <Link href="/vehicles" style={linkStyle}>
           Vehicles
         </Link>
+        <Link href="/services" style={linkStyle}>
+          Services
+        </Link>
       </nav>
       <main style={{ padding: "1.5rem" }}>{children}</main>
     </div>
