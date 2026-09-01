@@ -1,5 +1,5 @@
 /**
- * RSC shell for `/(customer)/appointments/new` — T-041 + T-042 + T-043 PR1.
+ * RSC shell for `/(customer)/appointments/new` — T-041 + T-042 + T-043 PR1 + PR2.
  *
  * Mirrors T-040 /services flow:
  *   1. `auth()` → redirect /login if null (INV-03 defensive).
@@ -24,18 +24,21 @@
  *      plate/customerId/createdAt/updatedAt ISO). When `vehicles.length === 0`
  *      the page renders the CTA branch only (no DateSelector, no
  *      AvailabilitySlots, no BookingForm) so the user can add a vehicle
- *      before the booking flow can start. PR2 wires the
- *      `<BookingForm>` compound once all four selections resolve.
- *   8. Render either CTA → /services, the 0-vehicle CTA → /vehicles,
- *      `<DateSelector>` alone, or `<DateSelector>` + `<AvailabilitySlots>`
- *      + `<VehicleSelector>` once a valid service is paired with the
- *      vehicle list. The islands own URL writes (`useSearchParams` +
- *      `router.push`) and sibling preservation (serviceId / date /
+ *      before the booking flow can start.
+ *   8. T-043 PR2: derive `selectedSlot` (slotSchema + `availableSlots.includes`)
+ *      and `selectedVehicle` (vehicleIdSchema + ownership re-check). When
+ *      ALL FOUR selections resolve (service + date + slot + vehicle), the
+ *      page composes the `<BookingForm>` island with primitive props
+ *      only — serviceId/vehicleId/date/slot/serviceName/vehicleLabel.
+ *      The island owns the submit pipeline + 201/409/403/422/401 error
+ *      envelope; the server enforces capacity (INV-04 `REPEATABLE READ`
+ *      + `EXCLUDE gist`) and ownership (INV-03) regardless.
+ *   9. Render either CTA → /services, the 0-vehicle CTA → /vehicles,
+ *      `<DateSelector>` alone, `<DateSelector>` + `<AvailabilitySlots>`
+ *      + `<VehicleSelector>`, or the same plus `<BookingForm>` when all
+ *      4 selections resolve. The islands own URL writes (`useSearchParams` +
+ *      `router.push`) and sibling preservation (serviceId / date / slot /
  *      vehicleId) for T-042/T-043.
- *
- * PR1 (T-043) shipped the RSC wire + 0-vehicle CTA + `<VehicleSelector>`
- * compound. PR2 wires `<BookingForm>` + submit + 409/403/422/401 envelope.
- * Confirm/submit wiring is intentionally absent in PR1 — chain discipline.
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -54,6 +57,8 @@ import {
   isPastBa,
 } from "@/lib/validators/date";
 import { serviceIdSchema } from "@/lib/validators/service";
+import { slotSchema } from "@/lib/validators/slot";
+import { vehicleIdSchema, isOwner } from "@/lib/validators/vehicleId";
 import { findActiveTurnosByDateRange } from "@/db/repositories/turnos";
 import {
   getAvailableSlotsForDate,
@@ -68,6 +73,7 @@ import styles from "./appointments.module.css";
 import { DateSelector } from "./_components/DateSelector";
 import { AvailabilitySlots } from "./_components/AvailabilitySlots";
 import { VehicleSelector } from "./_components/VehicleSelector";
+import { BookingForm } from "./_components/BookingForm";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -76,6 +82,7 @@ type AppointmentsNewPageProps = {
   searchParams: Promise<{
     serviceId?: string;
     date?: string;
+    slot?: string;
     vehicleId?: string;
   }>;
 };
@@ -265,6 +272,33 @@ export default async function AppointmentsNewPage({
     availableSlots = formatSlotsAsHHmm(slots, tz);
   }
 
+  // T-043 PR2 — `selectedSlot`. We can only resolve when the
+  // availability grid has been computed (otherwise `availableSlots` is
+  // null and the includes() check would always fail). Same
+  // `slotSchema.safeParse` + `availableSlots.includes(candidate)` guard
+  // the AvailabilitySlots island re-runs client-side — defense in
+  // depth so SSR and post-hydration state never disagree.
+  const candidateSlot = typeof params.slot === "string" ? params.slot : null;
+  const selectedSlot =
+    availableSlots !== null &&
+    candidateSlot !== null &&
+    slotSchema.safeParse(candidateSlot).success &&
+    availableSlots.includes(candidateSlot)
+      ? candidateSlot
+      : null;
+
+  // T-043 PR2 — `selectedVehicle`. Same `vehicleIdSchema.safeParse` +
+  // `isOwner` defense in depth the VehicleSelector island re-runs
+  // client-side. Foreign / deleted / tampered UUIDs fall back to `null`
+  // without 500. We narrow the type to `VehicleDTOJson` because the
+  // page already mapped the DB rows through `toVehicleJson`.
+  const selectedVehicle =
+    vehicleId !== null &&
+    vehicleIdSchema.safeParse(vehicleId).success &&
+    vehicles.find((v) => v.id === vehicleId && isOwner(v, userId))
+      ? (vehicles.find((v) => v.id === vehicleId && isOwner(v, userId)) as VehicleDTOJson)
+      : null;
+
   return (
     <section aria-labelledby="appointments-new-heading">
       <header className={styles.pageHeader}>
@@ -323,9 +357,7 @@ export default async function AppointmentsNewPage({
           URL writes for `?vehicleId=uuidV` with `vehicleIdSchema`
           + `isOwner` defense in depth (INV-03). Sibling preservation
           (serviceId / date) is the island's responsibility via
-          `URLSearchParams(searchParams.toString())`. PR2 wires the
-          `<BookingForm>` Submit/Confirm once all 4 selections resolve —
-          that compound is NOT present on PR1 tip (chain discipline). */}
+          `URLSearchParams(searchParams.toString())`. */}
       <VehicleSelector
         vehicles={vehicles}
         userId={userId}
@@ -336,6 +368,32 @@ export default async function AppointmentsNewPage({
         <VehicleSelector.SelectedBanner />
         <VehicleSelector.ClearButton />
       </VehicleSelector>
+
+      {/* T-043 PR2 — BookingForm compound. Only renders when ALL FOUR
+          selections resolve (service + date + slot + vehicle). The page
+          owns the URL-side validation (slotSchema, vehicleIdSchema,
+          `isOwner`, includes-check); the island owns the submit pipeline
+          + 201/409/403/422/401 envelope. Server enforces INV-04 capacity
+          (REPEATABLE READ + EXCLUDE gist) and INV-03 ownership regardless
+          of what the client posts.
+
+          If any of the four is missing/tampered, `BookingForm` is absent
+          — the user keeps refining via DateSelector / AvailabilitySlots /
+          VehicleSelector until all four URLs land. No stale submit. */}
+      {selectedService && selectedDate && selectedSlot && selectedVehicle ? (
+        <BookingForm
+          serviceId={selectedService.id}
+          date={selectedDate}
+          slot={selectedSlot}
+          vehicleId={selectedVehicle.id}
+          serviceName={selectedService.name}
+          vehicleLabel={`${selectedVehicle.brand} ${selectedVehicle.model} (${selectedVehicle.year}) — ${selectedVehicle.plate}`}
+        >
+          <BookingForm.Summary />
+          <BookingForm.ErrorBanner />
+          <BookingForm.Submit />
+        </BookingForm>
+      ) : null}
     </section>
   );
 }
