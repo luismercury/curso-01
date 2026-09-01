@@ -1,0 +1,80 @@
+/* vehicles.module.css
+ * First UI (T-039) — sets the styling precedent for future T-040..T-049.
+ * Semantic tokens only (no hardcoded colors); no Tailwind (design D5).
+ * No boolean props on consumers — each visual state is its own selector.
+ */
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-3); }
+
+.card {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--space-4); background: var(--color-bg);
+}
+.cardBrand { font-weight: 500; color: var(--color-fg); }
+.cardPlate {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem; color: var(--color-fg-strong);
+}
+
+.empty {
+  padding: var(--space-6) var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-muted);
+  text-align: center;
+}
+
+.banner {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-fg);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  display: grid; gap: var(--space-2);
+}
+.bannerTitle { margin: 0; font-size: 1rem; font-weight: 600; }
+.bannerMsg { margin: 0; font-size: 0.875rem; }
+.bannerDismiss {
+  justify-self: start;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent; color: inherit;
+  font: inherit; font-size: 0.8125rem; cursor: pointer;
+}
+
+.form {
+  display: grid; gap: var(--space-3);
+  margin-top: var(--space-6); padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); background: var(--color-bg);
+}
+.formHeading {
+  margin: 0; font-size: 1.125rem; font-weight: 600; color: var(--color-fg);
+}
+
+.field { display: grid; gap: var(--space-1); }
+.fieldLabel { font-size: 0.875rem; font-weight: 500; color: var(--color-fg); }
+.fieldInput {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit; background: var(--color-bg); color: var(--color-fg);
+}
+.fieldInput:focus { outline: 2px solid var(--color-fg); outline-offset: -1px; }
+.fieldInput.invalid { border-color: var(--color-danger-border); }
+.fieldError { color: var(--color-danger-fg); font-size: 0.8125rem; }
+.fieldHint { color: var(--color-fg-muted); font-size: 0.8125rem; }
+
+.submit {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-fg);
+  background: var(--color-fg); color: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font: inherit; font-weight: 500; cursor: pointer;
+  justify-self: start;
+}
+.submit:disabled { opacity: 0.5; cursor: not-allowed; }
