@@ -1,7 +1,8 @@
 # Apply Progress: t041-date-selection — Fecha (H-25)
 
-> Hybrid artifact (Engram + filesystem). PR2 of 3 on tracker
+> Hybrid artifact (Engram + filesystem). PR3 of 3 on tracker
 > `feature/t041-date-selection` (chain strategy: feature-branch-chain).
+> **Final PR — chain complete.**
 
 ## Cycle Status
 
@@ -13,8 +14,8 @@
 | Design | DONE | `openspec/changes/t041-date-selection/design.md` (129L) — D1..D6 architecture decisions |
 | Tasks | DONE | `openspec/changes/t041-date-selection/tasks.md` (56L) — 22 tasks across 3 phases |
 | Apply PR1 | DONE | Commit `9e695fd` — foundation RSC shell + helpers + boundaries + nav |
-| Apply PR2 | DONE (this report) | Commit `3a79606` — DateSelector compound islands (useSearchParams + router.push) |
-| Apply PR3 | PENDING | Phase 3: boundary tests + tracker docs commit |
+| Apply PR2 | DONE | Commit `3a79606` — DateSelector compound islands (useSearchParams + router.push) |
+| Apply PR3 | DONE (this report) | Commits `cd0b2e5` (tests) + `eb6780b` (docs) — boundary tests + tracker docs |
 | Verify | PENDING | All 3 PRs merged on tracker, then `sdd-verify` |
 | Archive | PENDING | After verify PASS |
 
@@ -51,6 +52,19 @@
 | `src/app/(customer)/appointments/new/_components/DateSelector.test.tsx` | CREATE | 25 jsdom+RTL tests covering GWT 3, 4, 7, 9 + defense in depth + INV-08 |
 | `src/app/(customer)/appointments/new/page.tsx` | MODIFY | -99 LOC net — replaces inline `<form method=get>` placeholder with `<DateSelector>` compound; removes unused `dowLabel` helper |
 | `src/app/(customer)/appointments/new/page.test.tsx` | MODIFY | Updates testid assertions from `appointments-new-form`/`appointments-new-banner` to the compound namespace (`DateSelectorImpl` / `DateSelectorInput` / etc.) since the page-level React element tree contains function refs, not rendered testids |
+
+## PR3 Commits
+
+| Field | Value |
+|-------|-------|
+| Branch (child) | `feature/t041-date-selection-pr2` |
+| Base | `3a79606` (PR2 tip) |
+| Commit 1 | `cd0b2e5` — `test(date): add boundary coverage PR3` |
+| Commit 2 | `eb6780b` — `chore(docs): commit still-untracked SDD tracker docs` |
+| Files changed | 12 (3 test/config + 9 tracker docs, 0 prod LOC) |
+| Insertions | 1606 (301 tests + 1305 docs) |
+| Deletions | 0 |
+| Tests added | 24 (7 loading + 17 error) |
 
 ## Files Changed (PR1)
 
@@ -173,6 +187,31 @@ audit confirmed same set):
 
 **0 new errors or warnings introduced by PR2.** Verified via
 `pnpm lint | grep -E 'DateSelector|appointments/new'` → no matches.
+
+## PR3 Evidence Summary
+
+| Step | Command | Result |
+|------|---------|--------|
+| focused tests | `pnpm vitest run src/app/(customer)/appointments/new/{loading,error}.test.tsx` | 2 files, 24 passed (7 loading + 17 error) |
+| full appointments/new | `pnpm vitest run src/app/(customer)/appointments/new` | 4 files, 63 passed (loading + error + page + DateSelector) |
+| full suite | `pnpm vitest run` | 4 failed | 72 passed | 1 skipped (77 files); 3 failed | 1142 passed | 2 skipped (1147 tests) — 4 failed files identical to master baseline |
+| typecheck | `pnpm typecheck` | `tsc --noEmit` exit 0, no diagnostics |
+| build | `pnpm build` | ✓ Compiled successfully in 2.1s, Finished TypeScript in 4.5s, `/appointments/new` ƒ Dynamic |
+| lint | `pnpm lint` | ✖ 21 problems (2 errors, 19 warnings) — identical to master baseline; 0 new errors/warnings introduced |
+
+## PR3 Boundary Test Coverage Matrix
+
+| Component | Test File | Tests | Coverage |
+|-----------|-----------|-------|----------|
+| Suspense skeleton | `loading.test.tsx` | 7 | `aria-busy="true"` + `aria-label` + 3 placeholders + `aria-hidden` per node + INV-03/08 no-leak |
+| Error boundary | `error.test.tsx` | 17 | 401 classification (3 regex variants) + `router.push('/login')` + `reset()` dispatch + `role="alert"` + `aria-labelledby` linkage + `console.error` observability + INV-03/08 no-leak + sneaky-message defense |
+
+## Invariant Compliance (PR3)
+
+| Invariant | Status | Evidence |
+|-----------|--------|----------|
+| **INV-03** Auth.js + JWT httpOnly + bcrypt | ✅ | `error.test.tsx` covers 401 → `router.push('/login')` for all 3 message variants; `loading.test.tsx` asserts no `password` / `jwt` / `bearer ` strings leak. |
+| **INV-08** DTO snake_case/Spanish never on wire; API camelCase | ✅ | Both `loading.test.tsx` and `error.test.tsx` run INV-08 no-leak assertions against the rendered HTML; `error.test.tsx` also covers a sneaky-message defense-in-depth test. |
 
 ## Invariant Compliance (PR2)
 

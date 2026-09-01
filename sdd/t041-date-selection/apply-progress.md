@@ -1,7 +1,8 @@
 # Apply Progress: t041-date-selection — Fecha (H-25)
 
-> Hybrid artifact (Engram + filesystem). PR2 of 3 on tracker
+> Hybrid artifact (Engram + filesystem). PR3 of 3 on tracker
 > `feature/t041-date-selection` (chain strategy: feature-branch-chain).
+> **Final PR — chain complete.**
 
 ## Cycle Status
 
@@ -13,8 +14,8 @@
 | Design | DONE | `openspec/changes/t041-date-selection/design.md` (129L) — D1..D6 architecture decisions |
 | Tasks | DONE | `openspec/changes/t041-date-selection/tasks.md` (56L) — 22 tasks across 3 phases |
 | Apply PR1 | DONE | Commit `9e695fd` — foundation RSC shell + helpers + boundaries + nav |
-| Apply PR2 | DONE (this report) | Commit `3a79606` — DateSelector compound islands (useSearchParams + router.push) |
-| Apply PR3 | PENDING | Phase 3: boundary tests + tracker docs commit |
+| Apply PR2 | DONE | Commit `3a79606` — DateSelector compound islands (useSearchParams + router.push) |
+| Apply PR3 | DONE (this report) | Commits `cd0b2e5` (tests) + `eb6780b` (docs) — boundary tests + tracker docs |
 | Verify | PENDING | All 3 PRs merged on tracker, then `sdd-verify` |
 | Archive | PENDING | After verify PASS |
 
@@ -51,6 +52,43 @@
 | `src/app/(customer)/appointments/new/_components/DateSelector.test.tsx` | CREATE | 25 jsdom+RTL tests covering GWT 3, 4, 7, 9 + defense in depth + INV-08 |
 | `src/app/(customer)/appointments/new/page.tsx` | MODIFY | -99 LOC net — replaces inline `<form method=get>` placeholder with `<DateSelector>` compound; removes unused `dowLabel` helper |
 | `src/app/(customer)/appointments/new/page.test.tsx` | MODIFY | Updates testid assertions from `appointments-new-form`/`appointments-new-banner` to the compound namespace (`DateSelectorImpl` / `DateSelectorInput` / etc.) since the page-level React element tree contains function refs, not rendered testids |
+
+## PR3 Commits
+
+| Field | Value |
+|-------|-------|
+| Branch (child) | `feature/t041-date-selection-pr2` |
+| Base | `3a79606` (PR2 tip) |
+| Commit 1 | `cd0b2e5` — `test(date): add boundary coverage PR3` |
+| Commit 2 | `eb6780b` — `chore(docs): commit still-untracked SDD tracker docs` |
+| Files changed | 12 (3 test/config + 9 tracker docs, 0 prod LOC) |
+| Insertions | 1606 (301 tests + 1305 docs) |
+| Deletions | 0 |
+| Tests added | 24 (7 loading + 17 error) |
+
+## Files Changed (PR3)
+
+### Test slice (`cd0b2e5`)
+
+| File | Action | Role |
+|------|--------|------|
+| `vitest.config.ts` | MODIFY | +4 LOC — routes `appointments/new/{loading,error}.test.tsx` to the jsdom project (exclude node + include jsdom) so `render()` finds a `document` global. Mirrors the `vehicles/{loading,error}` precedent from T-039 PR3. |
+| `src/app/(customer)/appointments/new/loading.test.tsx` | CREATE | 7 jsdom+RTL tests for the Suspense fallback: `aria-busy="true"`, `aria-label="Loading appointments"`, 3 placeholders, every placeholder `aria-hidden`, INV-03/08 no-leak. |
+| `src/app/(customer)/appointments/new/error.test.tsx` | CREATE | 17 jsdom+RTL tests for the Client Component error boundary: 401 classification (3 regex variants), `router.push('/login')` + `reset()` dispatch, `role="alert"` + `aria-labelledby` linkage, `console.error` observability hook, INV-03/08 no-leak + sneaky-message defense. |
+
+### Docs slice (`eb6780b`)
+
+| File | Action | Role |
+|------|--------|------|
+| `openspec/changes/t041-date-selection/apply-progress.md` | CREATE | PR1 + PR2 apply progress (309L) |
+| `openspec/changes/t041-date-selection/design.md` | CREATE | D1..D6 architecture decisions (129L) |
+| `openspec/changes/t041-date-selection/exploration.md` | CREATE | T-039 golden precedent + token reuse (205L) |
+| `openspec/changes/t041-date-selection/proposal.md` | CREATE | Scope + Approach A + risks table (72L) |
+| `openspec/changes/t041-date-selection/tasks.md` | CREATE | 22 tasks across 3 phases (56L) |
+| `openspec/changes/t041-date-selection/specs/date-selection/spec.md` | CREATE | Per-change delta spec — 5 ADDED reqs, 9 GWT scenarios (75L) |
+| `openspec/specs/date-selection/spec.md` | CREATE | Global aggregate spec (75L) |
+| `sdd/t041-date-selection/apply-progress.md` | CREATE | Hybrid PR3 apply report (this file) |
+| `sdd/t041-date-selection/spec.md` | CREATE | Hybrid spec mirror (75L) |
 
 ## Files Changed (PR1)
 
@@ -173,6 +211,122 @@ audit confirmed same set):
 
 **0 new errors or warnings introduced by PR2.** Verified via
 `pnpm lint | grep -E 'DateSelector|appointments/new'` → no matches.
+
+## Evidence (PR3 verification)
+
+### `pnpm vitest run` (PR3 target files)
+
+```
+RUN  v4.1.11 C:/Users/Luis Mercury/proyectos/curso-01-pr2
+
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  01:04:06
+   Duration  2.01s
+```
+
+Coverage: 7 loading + 17 error = **24 boundary tests, 0 regressions**.
+
+### `pnpm vitest run` (PR1 + PR2 + PR3 — appointments/new only)
+
+```
+RUN  v4.1.11 C:/Users/Luis Mercury/proyectos/curso-01-pr2
+
+ Test Files  4 passed (4)
+      Tests  63 passed (63)
+   Start at  01:13:21
+   Duration  2.90s
+```
+
+Coverage: 7 loading + 17 error + 14 RSC + 25 DateSelector = **63 tests**.
+
+### `pnpm vitest run` (full suite, regression smoke)
+
+```
+Test Files  4 failed | 72 passed | 1 skipped (77)
+     Tests  3 failed | 1142 passed | 2 skipped (1147)
+```
+
+**All 4 failed files are pre-existing on `master@22381d2`** (identical to PR1/PR2
+baseline per T-040 archive audit):
+1. `turnos.integration.test.ts` (suite) — server-only import in node project
+2. `clientes.schema.test.ts > db client singleton` — `AUTH_SECRET` env missing
+3. `servicios.integration.test.ts > duplicate nombre UNIQUE` — pgCode unwrap mismatch
+4. `servicios.schema.test.ts > t007 ships no HTTP route` — guard never updated for T-022
+
+**Zero regressions introduced by PR3.**
+
+### `pnpm typecheck`
+
+```
+$ tsc --noEmit
+EXIT_OK (no output)
+```
+
+**Clean — no TypeScript diagnostics.**
+
+### `pnpm build`
+
+```
+▲ Next.js 16.3.2 (Turbopack)
+- Environments: .env
+✓ Running next.config.ts took 96ms
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.1s
+  Running TypeScript ...
+  Finished TypeScript in 4.5s ...
+  Collecting page data using 5 workers ...
+  Generating static pages using 5 workers (11/11) in 380ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/admin/appointments
+├ ƒ /api/admin/schedule
+├ ƒ /api/appointments
+├ ƒ /api/appointments/[id]/cancel
+├ ƒ /api/appointments/[id]/confirm
+├ ƒ /api/appointments/[id]/reject
+├ ƒ /api/auth/[...nextauth]
+├ ƒ /api/auth/login
+├ ƒ /api/auth/register
+├ ƒ /api/availability
+├ ƒ /api/customers
+├ ƒ /api/customers/[customerId]/vehicles
+├ ƒ /api/customers/[id]
+├ ƒ /api/services
+├ ƒ /api/services/[id]
+├ ƒ /appointments/new          ← T-041 (PR1 + PR2 + PR3 boundary tests)
+├ ƒ /services
+└ ƒ /vehicles
+
+ƒ Proxy (Middleware)
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+```
+
+**Build clean.** `/appointments/new` still `ƒ Dynamic`.
+
+### `pnpm lint`
+
+```
+✖ 21 problems (2 errors, 19 warnings)
+```
+
+**Identical to `master@22381d2` baseline.** 0 new errors or warnings
+introduced by PR3 (verified via grep for `appointments/new` →
+no matches; the two pre-existing errors are `VehicleProvider.tsx:61`
+and `appointmentQuery.ts:55`, both pre-master).
+
+## Invariant Compliance (PR3)
+
+| Invariant | Status | Evidence |
+|-----------|--------|----------|
+| **INV-03** Auth.js + JWT httpOnly + bcrypt; ownership golden rule | ✅ | `error.test.tsx` covers 401 → `router.push('/login')` for all 3 message variants (`unauthorized`, `missing token`, `invalid token`); `loading.test.tsx` asserts no `password` / `jwt` / `bearer ` strings leak. |
+| **INV-08** DTO snake_case/Spanish never on wire; API camelCase | ✅ | Both `loading.test.tsx` and `error.test.tsx` run INV-08 no-leak assertions against the rendered HTML; `error.test.tsx` also covers a sneaky-message defense-in-depth test where the error.message contains `fechaHoraInicio` and the rendered HTML still must not echo it. |
+| **INV-06** TIMESTAMPTZ UTC, BA timezone via Intl | ✅ | PR3 boundary tests do not touch TZ; preserved from PR1 (no `toISOString` anywhere). |
+| **INV-01/02/04/05/07** | ✅ preserved | Not applicable to T-041 (no booking flow; pure URL state + UI). |
 
 ## Invariant Compliance (PR2)
 
