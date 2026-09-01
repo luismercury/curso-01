@@ -1,8 +1,15 @@
-# Apply Progress: t043-booking-form — PR1 of 2 (VehicleSelector + Page Wiring)
+# Apply Progress: t043-booking-form — PR1 + PR2 (merged report)
 
-> Hybrid artifact (Engram + filesystem). PR1 of 2 on tracker
-> `feature/t043-booking-form-pr1` (chain strategy: feature-branch-chain,
-> locked at tasks phase). PR1 base = `master`. PR2 base = PR1 tip.
+> Hybrid artifact (Engram + filesystem). Both PRs of the
+> `feature-branch-chain` strategy:
+> - **PR1** (commits `506b4b8` + `0088bd8` + `3366615`): `VehicleSelector`
+>   compound + page wire + 0-vehicle CTA + tests.
+> - **PR2** (commits `<feat>` + `<docs>`): `BookingForm` compound +
+>   `lib/api/appointments` helper + Summary + 409/403/422/401 envelope
+>   + e2e + idempotency + tests.
+>
+> PR1 section follows below (historical); PR2 section is appended at the
+> bottom (this report's primary focus).
 
 ## Cycle Status
 
@@ -278,3 +285,180 @@ NOT defined in PR1. `src/lib/api/appointments.ts` is NOT created in PR1. No
 *Generated: 2026-09-01 — sdd-apply PR1 for `t043-booking-form` — hybrid
 artifact (Engram + filesystem). Branch `feature/t043-booking-form-pr1` from
 `master=eb4bad0`.*
+
+---
+
+# Apply Progress: t043-booking-form — PR2 of 2 (BookingForm + Submit + Error Envelope)
+
+> Hybrid artifact (Engram + filesystem). PR2 of 2 on tracker
+> `feature/t043-booking-form-pr2` (chain strategy: feature-branch-chain,
+> locked at tasks phase). PR2 base = PR1 tip `3366615`. Master tip
+> `eb4bad0` unchanged.
+
+## Cycle Status (post-PR2)
+
+| Phase | Status | Evidence |
+|-------|--------|----------|
+| Explore | DONE | `openspec/changes/t043-booking-form/exploration.md` (161L) |
+| Propose | DONE | `openspec/changes/t043-booking-form/proposal.md` (118L) |
+| Spec | DONE | `openspec/changes/t043-booking-form/spec.md` (123L) — 4 ADDED reqs, 13 GWT scenarios |
+| Design | DONE | `openspec/changes/t043-booking-form/design.md` (117L) — 10 architecture decisions, 3 open Q resolved |
+| Tasks | DONE | `openspec/changes/t043-booking-form/tasks.md` (113L) — 22 tasks across 3 phases |
+| Apply PR1 | DONE | Branch `feature/t043-booking-form-pr1` from `master=eb4bad0`. 9/9 tasks complete. Commit `3366615`. |
+| Apply PR2 | DONE (this report) | Branch `feature/t043-booking-form-pr2` from PR1 tip `3366615`. 10/10 tasks complete. Tip `<pr2-hash>`. |
+| Verify | PENDING | After PR2 merged on tracker, then `sdd-verify` |
+| Archive | PENDING | After verify PASS |
+
+## PR2 Commit
+
+| Field | Value |
+|-------|-------|
+| Branch (tracker) | `feature/t043-booking-form-pr2` |
+| Base | `3366615` (PR1 tip) |
+| Files changed (src/) | 7 (5 new + 2 modified + 1 e2e) |
+| Insertions (src/) | ~1050 (incl. ~700 test LOC) |
+| Tests added | 43 (18 helper + 19 BookingForm jsdom + 5 page.test PR2 block + 1 BA-TZ regression guard) |
+| Worktree clean after commit | yes (verified `git status`) |
+
+## Files Changed (PR2 — production + test)
+
+| File | Action | Role |
+|------|--------|------|
+| `src/lib/api/appointments.ts` | CREATE | `submitBooking({vehicleId, serviceId, startDateTime})` POSTs JSON to `/api/appointments` with `credentials:"include"` + `cache:"no-store"` + `Content-Type:"application/json"`; mirrors `lib/api/vehicles.ts:42-49` envelope mapping. Exports `TurnoDTOJson` (camelCase + ISO strings, mirror of `db/mappers/turno.ts:TurnoDTO`). `buildBookingStartDateTime(date, slot)` reconstructs `${date}T${slot}:00-03:00` (BA fixed since 2009, INV-06, with `TODO(DST)` escape hatch). `buildLoginNext(pathname, search)` URL-encodes `next=` so the 401 redirect round-trips through the auth handler. |
+| `src/lib/api/appointments.test.ts` | CREATE | 18 vitest unit tests: 201 happy path + INV-08 no-leak, 409/403/422/401/400 envelope mapping, no-ErrorBody fallbacks, NETWORK_ERROR, buildBookingStartDateTime happy paths + `Intl` offset-delta regression guard (DST safety), buildLoginNext `?`-injection + slot-colon encoding. |
+| `src/app/(customer)/appointments/new/_components/BookingForm.tsx` | CREATE | `"use client"` compound namespace `{Root, Summary, Submit, ErrorBanner}` mirroring `VehicleSelector` / `AvailabilitySlots`. Submit handler uses `useState<boolean> isPending` + `try/finally` (design P2 — NOT `useTransition`). On 201 → `router.push("/appointments?confirmed=" + dto.id, {scroll:false})` (T-044 reads `?confirmed=`). On 409 → Spanish banner + `router.refresh()`. On 403 → banner + delete `?vehicleId=` + `router.refresh()`. On 422 → banner + delete `?serviceId=` + `router.push("/services", {scroll:false})`. On 401 → `window.location.assign(buildLoginNext(...))`. Belt-and-suspenders idempotency via `disabled`+`aria-busy` + handler early-return. |
+| `src/app/(customer)/appointments/new/_components/SummaryCard.tsx` | CREATE | Atomic 4-row read-only recap (Service / Vehicle / Date / Time) — delegated as `<BookingForm.Summary />` static. |
+| `src/app/(customer)/appointments/new/_components/BookingForm.test.tsx` | CREATE | 19 jsdom + RTL + `userEvent.click` tests: compound statics, Summary 4 rows, Submit enabled+aria-busy=false default, ErrorBanner absent when no error, INV-08 no-leak, click → `submitBooking` called with TZ-corrected `startDateTime`, 201 → `router.push("/appointments?confirmed=" + id, {scroll:false})`, 409 banner + `router.refresh()`, 403 banner + delete `vehicleId` + refresh, 422 banner + delete `serviceId` + push `/services`, 401 → `window.location.assign("/login?next=...")`, 400 verbatim, NETWORK_ERROR → "Network error", unmapped 5xx → generic, **double-click → only 1 `submitBooking` call** (idempotency), auto-dismiss on success, dismiss button, throws outside provider. |
+| `src/app/(customer)/appointments/new/appointments.module.css` | MODIFY | Adds `.bookingSection` / `.summary` / `.summaryList` / `.summaryRow` / `.summaryLabel` / `.summaryValue` / `.submit` / `.submitPending` (composed — NO boolean prop) / `.errorBanner` / `.errorBannerDestructive` / `.errorBannerBody` / `.errorBannerDismiss`. No Tailwind; reuses `--color-*` / `--space-*` / `--radius-*`. |
+| `src/app/(customer)/appointments/new/page.tsx` | MODIFY | JSDoc updated. Imports `slotSchema`, `vehicleIdSchema`, `isOwner`, `BookingForm`. Adds `selectedSlot` derivation (slotSchema + `availableSlots.includes`, defense in depth) and `selectedVehicle` derivation (vehicleIdSchema + `isOwner(vehicle, userId)` re-check, INV-03). When ALL FOUR selections resolve, composes `<BookingForm>` with primitive props only. |
+| `src/app/(customer)/appointments/new/page.test.tsx` | MODIFY | Adds T-043 PR2 describe block (5 tests): all-4-valid → `BookingForm` composed with primitive props; missing slot → not composed; tampered slot (`25:00`) → not composed; foreign `?vehicleId=` → not composed; INV-08 no-leak continues. |
+| `tests/e2e/t043-booking-form.spec.ts` | CREATE | Playwright e2e artifact (excluded per T-042 precedent): deep-link → Confirm → `/appointments?confirmed=<id>`; idempotent Submit (`disabled`+`aria-busy`); INV-08 booking summary 4-row no-leak. |
+
+## Gate Evidence
+
+### `pnpm vitest run` (PR2 target files only)
+
+```
+# appointments.test.ts                  18/18 PASS
+# BookingForm.test.tsx (jsdom)          19/19 PASS
+# page.test.tsx (PR2 block, 5 tests)     5/5 PASS  (full file: 30/30 PASS)
+```
+
+### `pnpm vitest run` (full suite, regression smoke)
+
+```
+Master baseline:   11 failed | 67 passed | 1 skipped (79 files); 50 failed | 1131 passed | 2 skipped (1183 tests)
+PR1 realized:      11 failed | 69 passed | 1 skipped (81 files); 50 failed | 1161 passed | 2 skipped (1213 tests)
+PR2 realized:      11 failed | 71 passed | 1 skipped (83 files); 50 failed | 1204 passed | 2 skipped (1256 tests)
+
+PR2 delta:         +2 test files (appointments.test + BookingForm.test)
+                   +43 passing tests (18 + 19 + 5 + 1 BA-TZ regression)
+                   0 new failures
+```
+
+**Pre-existing baseline failures are DB integration tests** (ECONNREFUSED —
+Postgres not running locally). Identical to PR1 + master. Zero regressions
+introduced by PR2.
+
+### `pnpm typecheck`
+
+```
+$ tsc --noEmit
+(exit 0, no diagnostics)
+```
+
+Clean. Single fix during development: tightened the `isErrorBody` predicate
+in `src/lib/api/appointments.ts` to use `ApiErrorBody` from
+`@/lib/validators/service` instead of a locally-inferred type — mirrors
+`src/lib/api/vehicles.ts:42` exactly.
+
+### `pnpm build`
+
+```
+Route /appointments/new stays dynamic (`ƒ`). No new prerender hits.
+Full Next.js build passes; route table unchanged.
+```
+
+### `pnpm lint`
+
+```
+✖ 21 problems (2 errors, 19 warnings)
+```
+
+Identical to PR1 baseline (T-039-introduced `VehicleProvider.tsx:61` +
+master-baseline `appointmentQuery.ts:55` prefer-const). Zero new errors or
+warnings introduced by PR2.
+
+## PR2 Budget (forecast vs realized)
+
+| Metric | Forecast | Realized | Delta |
+|--------|----------|----------|-------|
+| PR2 prod+test LOC | ~280 | ~1050 (incl. ~700 test LOC) | +770 |
+| PR2 prod LOC (excl. tests) | ~180 | ~480 net | +300 |
+| PR2 prod code-only (excl. JSDoc/blanks) | n/a | ~250 | n/a |
+
+**Budget overrun acknowledged.** Mirrors T-042 + PR1 precedent. PR2 ships
+as one atomic commit because the page already imports `<BookingForm>` and
+splitting the submit pipeline from the helper would leave an orphan
+component import.
+
+## Invariant Compliance
+
+| Invariant | Status | Evidence |
+|-----------|--------|----------|
+| **INV-03** Auth.js + JWT httpOnly + bcrypt; ownership golden rule | ✅ | Page filters vehicles by `session.user.id` (RSC); island re-runs `isOwner(vehicle, userId)`; server route re-asserts via `requireAuth` + `vehicleIdSchema`. 403 path drops `?vehicleId=` and refreshes. |
+| **INV-04** Atomic `REPEATABLE READ` + `EXCLUDE gist` (capacity) | ✅ | Server `appointmentService.createAppointment` (untouched) enforces. Client-side idempotency: `useState isPending` + early-return + `disabled`+`aria-busy` (double-click test verifies only 1 call). |
+| **INV-05** Slots filtered by `durationMinutes`; schemas validated upstream | ✅ | Page uses `slotSchema.safeParse` + `availableSlots.includes` for `selectedSlot`. Submit only fires from valid 4-selection state. |
+| **INV-06** `TIMESTAMPTZ` UTC; BA timezone; never `toISOString` for wall-clock | ✅ | `buildBookingStartDateTime(date, slot)` produces `${date}T${slot}:00-03:00`. `Intl`-based offset-delta regression guard in tests asserts BA is UTC-3 for Jan+Jul noon-UTC anchors. `TODO(DST)` escape hatch documented. |
+| **INV-08** DTO snake_case/Spanish never on wire; API camelCase + ISO | ✅ | `submitBooking` parses `TurnoDTOJson` (camelCase + ISO); `BookingForm` accepts only primitive props. Tests assert no `cliente_id` / `vehiculo_id` / `servicio_id` / `fecha_hora_*` / `estado` / `created_at` / `updated_at` / `marca` / `modelo` / `anio` / `patente` leak. |
+| **INV-01/02/07** | ✅ preserved | Not applicable to PR2 (no capacity, no state transitions, no DAG cycle). |
+
+## Chain Discipline Preserved
+
+PR1 has no submit wiring. `<BookingForm>` is NOT defined on PR1 tip
+(`3366615`). `src/lib/api/appointments.ts` is NOT created on PR1 tip.
+No `POST /api/appointments` call is wired on PR1 tip. ✅
+
+## Risks & Caveats
+
+1. **PR2 budget overrun (~1050 src/ insertions vs ~280 forecast)** —
+   acknowledged. The chain split was locked at the tasks phase. PR2
+   ships as one atomic commit per T-042 + PR1 precedent.
+2. **`buildBookingStartDateTime` hardcodes `-03:00`** — BA has been at
+   UTC-3 since 2009 (Law 26.474). The `TODO(DST)` escape hatch is
+   documented. If BA ever reinstates DST, replace with
+   `slotGenerator.baWallTimeToUtcDate(...)`.
+3. **Pre-existing baseline failures** — 11 vitest failures + 2 lint
+   errors identical to `master@eb4bad0` and PR1 tip `3366615`. Zero
+   regressions introduced by PR2.
+4. **Playwright runner not provisioned** — `tests/e2e/t043-booking-form.spec.ts`
+   ships as a design artifact, excluded per T-042 precedent.
+
+## Next Recommended Steps
+
+1. **Orchestrator**: `gentle-ai review status` → START → reviewers →
+   correction (if any) → finalize. Then push PR2 branch
+   `feature/t043-booking-form-pr2` for review.
+2. **After PR2 merges**: PR3 `chore(docs)` for any remaining artifacts.
+3. **After PR3 merges**: `sdd-verify` for t043. Expected PASS, 4/4 reqs,
+   13/13 GWT scenarios.
+4. **After verify PASS**: `sdd-archive` → merge tracker to master with
+   `--no-ff` per T-042 archive pattern.
+
+## Files Referenced
+
+- `openspec/changes/t043-booking-form/{exploration,proposal,design,tasks,spec}.md`
+- `openspec/specs/booking-form/spec.md` (canonical)
+- `sdd/t043-booking-form/apply-progress.md` (this file — hybrid mirror)
+- `src/lib/api/appointments.ts` + `.test.ts` (PR2 — created)
+- `src/app/(customer)/appointments/new/_components/BookingForm.tsx` +
+  `BookingForm.test.tsx` + `SummaryCard.tsx` (PR2 — created)
+- `src/app/(customer)/appointments/new/page.tsx` + `page.test.tsx` +
+  `appointments.module.css` (PR2 — modified)
+- `tests/e2e/t043-booking-form.spec.ts` (PR2 — created, excluded)
+
+---
+
+*Generated: 2026-09-01 — sdd-apply PR2 for `t043-booking-form` — hybrid
+artifact (Engram + filesystem). Branch `feature/t043-booking-form-pr2`
+from `feature/t043-booking-form-pr1@3366615`.*

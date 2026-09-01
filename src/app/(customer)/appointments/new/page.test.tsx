@@ -717,3 +717,174 @@ describe("AppointmentsNewPage — T-043 PR1 vehicles wire", () => {
     expect(json).toContain("2026-01-01T00:00:00.000Z");
   });
 });
+
+describe("AppointmentsNewPage — T-043 PR2 BookingForm compose (all 4 selections)", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.clearAllMocks());
+
+  it("all 4 valid (service + date + slot + vehicle) → BookingForm is composed with primitive props", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([
+      svcDto({ id: ID_A, active: true, durationMinutes: 30 }),
+    ]);
+    // Vehicle's customerId must match the session user id (INV-03
+    // ownership) so the page's `isOwner(vehicle, userId)` re-check
+    // accepts it. The default vehDto() factory uses a different id
+    // — override here.
+    mockListVehicles.mockResolvedValueOnce([
+      vehDto({ id: ID_V, customerId: ID_A }),
+    ]);
+    // Domain returns one bookable slot so selectedSlot resolves.
+    mockGetSlots.mockResolvedValueOnce([
+      { start: new Date("2026-09-09T12:00:00.000Z"), end: new Date("2026-09-09T12:30:00.000Z") },
+    ]);
+    mockFormatSlots.mockReturnValueOnce(["09:00"]);
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({
+        serviceId: ID_A,
+        date: "2026-09-09",
+        slot: "09:00",
+        vehicleId: ID_V,
+      }),
+    });
+    expect(tree).toBeDefined();
+    const json = stringifyTree(tree);
+    // The page composes the BookingForm compound with the four
+    // primitive props + the two display labels (serviceName + vehicleLabel).
+    expect(json).toContain("BookingFormImpl");
+    expect(json).toContain("BookingFormSummary");
+    expect(json).toContain("BookingFormSubmit");
+    expect(json).toContain("BookingFormErrorBanner");
+    // The service name and vehicle label cross the boundary as plain
+    // strings (INV-08 — never `cliente_id` / `fecha*` / `estado`).
+    expect(json).toContain("Oil Change");
+    // `brand model (year) — plate` shape — the page composes the
+    // vehicleLabel string before passing it across.
+    expect(json).toContain("Toyota Corolla (2020)");
+    expect(json).toContain("AB123CD");
+    // The primitive UUIDs propagate to the island.
+    expect(json).toContain(ID_A);
+    expect(json).toContain(ID_V);
+  });
+
+  it("missing slot → BookingForm NOT composed (only 3 of 4 resolve)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true })]);
+    mockListVehicles.mockResolvedValueOnce([
+      vehDto({ id: ID_V, customerId: ID_A }),
+    ]);
+    mockGetSlots.mockResolvedValueOnce([]);
+    mockFormatSlots.mockReturnValueOnce([]);
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({
+        serviceId: ID_A,
+        date: "2026-09-09",
+        vehicleId: ID_V,
+      }),
+    });
+    const json = stringifyTree(tree);
+    expect(json).not.toContain("BookingFormImpl");
+    expect(json).not.toContain("BookingFormSummary");
+    expect(json).not.toContain("BookingFormSubmit");
+  });
+
+  it("tampered slot (`25:00`) → BookingForm NOT composed (slotSchema rejects)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true })]);
+    mockListVehicles.mockResolvedValueOnce([
+      vehDto({ id: ID_V, customerId: ID_A }),
+    ]);
+    mockGetSlots.mockResolvedValueOnce([
+      { start: new Date("2026-09-09T12:00:00.000Z"), end: new Date("2026-09-09T12:30:00.000Z") },
+    ]);
+    mockFormatSlots.mockReturnValueOnce(["09:00"]);
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({
+        serviceId: ID_A,
+        date: "2026-09-09",
+        slot: "25:00", // tampered — slotSchema rejects
+        vehicleId: ID_V,
+      }),
+    });
+    const json = stringifyTree(tree);
+    expect(json).not.toContain("BookingFormImpl");
+  });
+
+  it("foreign ?vehicleId= → BookingForm NOT composed (isOwner fails)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true })]);
+    // vehicles list only contains the user's own vehicle — the deep-link
+    // asks for a foreign UUID that does NOT exist in `vehicles`, so
+    // `isOwner` fails on the page side too.
+    mockListVehicles.mockResolvedValueOnce([
+      vehDto({ id: ID_V, customerId: ID_A }),
+    ]);
+    mockGetSlots.mockResolvedValueOnce([
+      { start: new Date("2026-09-09T12:00:00.000Z"), end: new Date("2026-09-09T12:30:00.000Z") },
+    ]);
+    mockFormatSlots.mockReturnValueOnce(["09:00"]);
+    const FOREIGN_VEHICLE = "999e8400-e29b-41d4-a716-446655440999";
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({
+        serviceId: ID_A,
+        date: "2026-09-09",
+        slot: "09:00",
+        vehicleId: FOREIGN_VEHICLE,
+      }),
+    });
+    const json = stringifyTree(tree);
+    expect(json).not.toContain("BookingFormImpl");
+  });
+
+  it("INV-08 — BookingForm compose keeps the no-leak invariant (no snake/Spanish)", async () => {
+    mockAuth.mockResolvedValueOnce(sessionUser(ID_A));
+    mockConfig.mockResolvedValueOnce(defaultConfig());
+    mockList.mockResolvedValueOnce([svcDto({ id: ID_A, active: true })]);
+    mockListVehicles.mockResolvedValueOnce([
+      vehDto({ id: ID_V, customerId: ID_A }),
+    ]);
+    mockGetSlots.mockResolvedValueOnce([
+      { start: new Date("2026-09-09T12:00:00.000Z"), end: new Date("2026-09-09T12:30:00.000Z") },
+    ]);
+    mockFormatSlots.mockReturnValueOnce(["09:00"]);
+    const Page = await loadPage();
+    const tree = await Page({
+      searchParams: Promise.resolve({
+        serviceId: ID_A,
+        date: "2026-09-09",
+        slot: "09:00",
+        vehicleId: ID_V,
+      }),
+    });
+    const json = stringifyTree(tree);
+    // Snake_case + Spanish forbidden names must never surface in the
+    // rendered tree — neither on the VehicleSelector compound (PR1)
+    // nor on the BookingForm compound (PR2).
+    for (const forbidden of [
+      "marca",
+      "modelo",
+      "anio",
+      "patente",
+      "cliente_id",
+      "vehiculo_id",
+      "servicio_id",
+      "fecha_hora_inicio",
+      "fecha_hora_fin",
+      "estado",
+      "created_at",
+      "updated_at",
+      "fechaHoraInicio",
+      "fechaHoraFin",
+    ]) {
+      expect(json, `must not contain ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+});
