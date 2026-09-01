@@ -1,12 +1,45 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Semantic color tokens — first UI (T-039) sets precedent. */
+  --color-bg: #ffffff;
+  --color-fg: #111827;
+  --color-fg-strong: #374151;
+  --color-fg-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fca5a5;
+  --color-danger-fg: #991b1b;
+  --color-skeleton-base: #f3f4f6;
+  --color-skeleton-highlight: #e5e7eb;
+
+  /* Spacing scale (4px grid). */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+
+  /* Radius scale. */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --color-bg: #0a0a0a;
+    --color-fg: #f3f4f6;
+    --color-fg-strong: #d1d5db;
+    --color-fg-muted: #9ca3af;
+    --color-border: #374151;
+    --color-danger-bg: #450a0a;
+    --color-danger-border: #b91c1c;
+    --color-danger-fg: #fecaca;
+    --color-skeleton-base: #1f2937;
+    --color-skeleton-highlight: #374151;
   }
 }
 

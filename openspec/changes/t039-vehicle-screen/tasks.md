@@ -33,12 +33,12 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Client Islands + Styling (PR 2)
 
-- [ ] 2.1 `_components/VehicleProvider.tsx` — `"use client"` context `{vehicles, status, createVehicle(p)}`; no boolean props.
-- [ ] 2.2 `_components/VehicleList.tsx` — DTO[] ASC; children `Empty` ("No vehicles yet"), `ErrorBanner`.
-- [ ] 2.3 `_components/VehicleForm.tsx` — `"use client"` controlled inputs; plate preview; client Zod; 201→`router.refresh()`; 400 inline per `issues[0].path`; 409 plate field (keep brand/model); 401→`router.push('/login')`; 403→banner.
-- [ ] 2.4 `vehicles.module.css` — tokens, shimmer, card, button; no Tailwind.
-- [ ] 2.5 Modify `src/app/globals.css` — `:root` custom properties (color, spacing, radius).
-- [ ] 2.6 Wire `<VehicleProvider>` in `page.tsx`; pass ISO `string` props (no `Date` leak).
+- [x] 2.1 `_components/VehicleProvider.tsx` — `"use client"` context `{vehicles, isPending, error, createVehicle(p)}`; no boolean props; compound namespace `VehicleProvider.List` / `VehicleProvider.Form` per vercel-composition-patterns.
+- [x] 2.2 `_components/VehicleList.tsx` — DTO[] ASC; `Empty` ("No vehicles yet"), `ErrorBanner` rendered conditionally inside (no boolean props); stable `key={v.id}`.
+- [x] 2.3 `_components/VehicleForm.tsx` — `"use client"` controlled inputs; plate preview hint via `normalizePatente`; client Zod; 201→reset + `router.refresh()` (provider); 400 inline per `issues[0].path`; 409 plate field (keep brand/model/year); 401→`router.push('/login')`; 403→banner (provider).
+- [x] 2.4 `vehicles.module.css` — CSS module with semantic tokens; list/card/empty/banner/form/field/submit selectors; no Tailwind.
+- [x] 2.5 Modify `src/app/globals.css` — `:root` custom properties (color, spacing, radius) + dark-mode overrides.
+- [x] 2.6 Wire `<VehicleProvider>` in `page.tsx`; pass `customerId` (string), `maxYear` (number), `initialVehicles` (`VehicleDTOJson[]` with ISO strings) — no `Date` leak.
 
 ## Phase 3: Tests + Tooling (PR 3)
 
