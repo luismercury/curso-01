@@ -142,11 +142,19 @@ export function VehicleSelectorImpl({
 
   const select = useCallback(
     (id: string) => {
+      // Clone the current URL state so we can mutate without dropping
+      // siblings (serviceId, date, future slot) — same pattern as the
+      // `clear` callback below and as AvailabilitySlots / DateSelector.
+      // `URLSearchParams.toString()` re-emits the canonical key order —
+      // fine because the URL is opaque on the wire.
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("vehicleId", id);
+      const query = params.toString();
       // `scroll: false` keeps the viewport stable — selection feedback is
       // local to the list, no need to scroll to top.
-      router.push(`?vehicleId=${id}`, { scroll: false });
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
     },
-    [router],
+    [pathname, router, searchParams],
   );
 
   const clear = useCallback(() => {
