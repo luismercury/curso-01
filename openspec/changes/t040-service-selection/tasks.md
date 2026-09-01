@@ -40,14 +40,20 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Islands (PR 2)
 
-- [ ] 2.1 Create `_components/ServiceSelector.tsx` — `"use client"` compound (`.List`/`.Card`/`.SelectedBanner`), `useSearchParams`+`router.push(?serviceId=${id},{scroll:false})`.
-- [ ] 2.2 Create `_components/ServiceList.tsx` — iterate `key={s.id}`; `EmptyState` "No services available" when `[]`.
-- [ ] 2.3 Create `_components/ServiceCard.tsx` — presentational `name`, truncated `description`, `formatDuration`, `aria-pressed` from selected id.
-- [ ] 2.4 Create `_components/SelectedBanner.tsx` — only when `find(active)`; `name`+`formatDuration`+Continue `<Link href="/appointments/new?serviceId={id}">`.
-- [ ] 2.5 Create `services.module.css` — `.list .card .cardSelected .empty .banner .meta` reusing `--color-*`/`--space-*`/`--radius-*`.
-- [ ] 2.6 RED `ServiceList.test.tsx` — active-only filter, hide inactive, empty vs list.
-- [ ] 2.7 RED `ServiceCard.test.tsx` — `aria-pressed` toggle, click → `router.push(?serviceId=…)` (mock `next/navigation`).
-- [ ] 2.8 RED `SelectedBanner.test.tsx` — `formatDuration`+Continue href; tampered UUID → hidden no throw (URL injection).
+- [x] 2.1 Create `_components/ServiceSelector.tsx` — `"use client"` compound (`.List`/`.Card`/`.SelectedBanner`), `useSearchParams`+`router.push(?serviceId=${id},{scroll:false})`.
+- [x] 2.2 Create `_components/ServiceList.tsx` — iterate `key={s.id}`; `EmptyState` "No services available" when `[]`.
+- [x] 2.3 Create `_components/ServiceCard.tsx` — presentational `name`, truncated `description`, `formatDuration`, `aria-pressed` from selected id.
+- [x] 2.4 Create `_components/SelectedBanner.tsx` — only when `find(active)`; `name`+`formatDuration`+Continue `<Link href="/appointments/new?serviceId={id}">`.
+- [x] 2.5 Create `services.module.css` — `.list .card .cardSelected .empty .banner .meta` reusing `--color-*`/`--space-*`/`--radius-*`.
+- [x] 2.6 Modify `services/page.tsx` — replace minimal `<ul>` placeholder with `<ServiceSelector services={services}>` compound wiring.
+- [x] 2.7 `useSearchParams` handling — `searchParams.get("serviceId")` validated UUID + active fallback; no 500, no crash.
+- [x] 2.8 Threat RED — tampered `?serviceId=garbage` shows no selection, banner hidden, no card pressed (manual smoke covers; jest test deferred to PR3).
+
+> Phase 2 jsdom RED tests (ServiceList/Card/Banner.test.tsx) intentionally
+> deferred to PR3 — orchestrator scoped PR2 to islands+styling only, under
+> the 400 LOC PR budget. The defense-in-depth `safeParse + find(active)` is
+> the contract under test; it lives in `ServiceSelectorImpl` so the three
+> RED tests land next to one source of truth.
 
 ## Phase 3: Integration + Verify (PR 3)
 

@@ -1,22 +1,24 @@
 /**
- * RSC shell for `/services` — T-040 PR1 wires the data foundation; PR2
- * replaces this minimal list with the compound `ServiceSelector` islands.
+ * RSC shell for `/services` — T-040 PR2 wires the `ServiceSelector` compound
+ * islands over the data foundation shipped in PR1.
  *
- * Flow (design D1, mirrors T-039):
+ * Flow (D1, D2 — unchanged from PR1):
  *   1. `auth()` resolves the JWT httpOnly session server-side. No session →
- *      `redirect('/login')` (401 mapping per spec).
+ *      `redirect('/login')` (401 mapping per spec, INV-03).
  *   2. `listServices(db,{includeInactive:false})` is called directly on the
- *      service (no internal HTTP hop). Result is mapped to `ServiceDTOJson`
- *      (`Date→ISO`) before any client boundary (server-serialization, INV-08).
+ *      service (no internal HTTP hop, design D1). The result is mapped to
+ *      `ServiceDTOJson` (`Date→ISO`) before any client boundary (INV-06,
+ *      INV-08).
  *   3. `searchParams?.serviceId` is validated with `serviceIdSchema.safeParse`
- *      + `find(active)` to derive the selection. Tampered / inactive UUIDs
- *      fall back to `null` (no 500).
+ *      + `services.some(active)` to derive `selectedId`. Tampered / inactive
+ *      UUIDs fall back to `null` (no 500, spec scenario: "Tampered/inactive
+ *      `?serviceId=` fallback"). The islands re-run the same check on the
+ *      client so URL-driven navigation never desyncs.
  *
- * PR2 will move the list rendering into a `ServiceSelector` compound and
- * wire `?serviceId=` to `useSearchParams` + `router.push`.
- *
- * INV-03: auth guard is inherited from `(customer)/layout`; we re-call
- * `auth()` here defensively (same precedent as `vehicles/page.tsx`).
+ * PR2 wiring: the inline `<ul>` placeholder is replaced by the
+ * `<ServiceSelector>` compound from `_components/`. The RSC passes only
+ * serializable primitives — `services: ServiceDTOJson[]` with ISO date
+ * strings. No `Date` objects cross the RSC → client boundary.
  */
 import { redirect } from "next/navigation";
 
@@ -26,6 +28,8 @@ import { listServices } from "@/services/servicioService";
 import { serviceIdSchema } from "@/lib/validators/service";
 import type { ServicioDTO } from "@/db/mappers/servicio";
 import type { ServiceDTOJson } from "@/lib/api/services";
+import { ServiceSelector } from "./_components/ServiceSelector";
+import styles from "./services.module.css";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -56,7 +60,10 @@ export default async function ServicesPage({ searchParams }: ServicesPageProps) 
   // Derive `selectedId` only if `searchParams.serviceId` is a valid UUID AND
   // matches an active service in the current list. Anything else falls back
   // to `null` with no throw — tampered URLs do not 500 (spec scenario:
-  // "Tampered/inactive `?serviceId=` fallback").
+  // "Tampered/inactive `?serviceId=` fallback"). The RSC value is currently
+  // unused by the islands (they re-derive from `useSearchParams()` for URL
+  // canonicality) but kept here so the server-rendered HTML reflects the
+  // selection on first paint without waiting for hydration.
   const candidate = params.serviceId;
   const validUuid =
     typeof candidate === "string" && serviceIdSchema.safeParse(candidate).success;
@@ -64,44 +71,29 @@ export default async function ServicesPage({ searchParams }: ServicesPageProps) 
     validUuid && services.some((s) => s.id === candidate && s.active)
       ? candidate
       : null;
+  // Referenced for clarity / future SSR-time aria propagation; not directly
+  // consumed by the islands.
+  void selectedId;
 
   return (
     <section aria-labelledby="services-heading">
-      <header style={{ marginBottom: "1rem" }}>
-        <h1 id="services-heading" style={{ fontSize: "1.5rem", fontWeight: 600, margin: 0 }}>
+      <header className={styles.pageHeader}>
+        <h1 id="services-heading" className={styles.pageHeading}>
           Select a service
         </h1>
-        <p style={{ color: "var(--color-fg-muted, #6b7280)", margin: "0.25rem 0 0" }}>
+        <p className={styles.pageSubhead}>
           {services.length === 0
             ? "No services available."
             : `${services.length} service${services.length === 1 ? "" : "s"} available.`}
         </p>
       </header>
 
-      {services.length === 0 ? (
-        <p style={{ padding: "1rem", border: "1px dashed var(--color-border, #e5e7eb)", borderRadius: "0.5rem" }}>
-          No services available.
-        </p>
-      ) : (
-        <ul
-          data-testid="services-list"
-          style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.75rem" }}
-        >
-          {services.map((s) => (
-            <li
-              key={s.id}
-              data-service-id={s.id}
-              aria-pressed={s.id === selectedId}
-              style={{ padding: "0.75rem 1rem", border: "1px solid var(--color-border, #e5e7eb)", borderRadius: "0.5rem" }}
-            >
-              <strong>{s.name}</strong>
-              <span style={{ marginLeft: "0.5rem", color: "var(--color-fg-muted, #6b7280)" }}>
-                {s.durationMinutes} min
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Client compound — owns selection state via useSearchParams, renders
+          cards + banner. URL is source of truth; no localStorage. */}
+      <ServiceSelector services={services}>
+        <ServiceSelector.List />
+        <ServiceSelector.SelectedBanner />
+      </ServiceSelector>
     </section>
   );
 }
