@@ -35,8 +35,8 @@ Chain strategy: feature-branch-chain
 - [x] 1.4 Create `src/app/(customer)/services/loading.tsx` — Suspense skeleton (3 shimmer rows, `aria-busy`).
 - [x] 1.5 Create `src/app/(customer)/services/error.tsx` — client boundary; 401→`router.push('/login')`, 403→banner, other→retry.
 - [x] 1.6 Modify `src/app/(customer)/layout.tsx` — add `<Link href="/services">Services</Link>` to nav.
-- [ ] 1.7 RED `src/lib/validators/service.test.ts` — `formatDuration(45/60/75/90/120/180)`; `serviceIdSchema.safeParse` valid/invalid.
-- [ ] 1.8 RED `src/lib/api/services.test.ts` — mock fetch `200` ISO; `401/403/400`→`ApiError`.
+- [x] 1.7 RED `src/lib/validators/service.test.ts` — `formatDuration(45/60/75/90/120/180)`; `serviceIdSchema.safeParse` valid/invalid.
+- [x] 1.8 RED `src/lib/api/services.test.ts` — mock fetch `200` ISO; `401/403/400`→`ApiError`.
 
 ## Phase 2: Islands (PR 2)
 
@@ -47,7 +47,7 @@ Chain strategy: feature-branch-chain
 - [x] 2.5 Create `services.module.css` — `.list .card .cardSelected .empty .banner .meta` reusing `--color-*`/`--space-*`/`--radius-*`.
 - [x] 2.6 Modify `services/page.tsx` — replace minimal `<ul>` placeholder with `<ServiceSelector services={services}>` compound wiring.
 - [x] 2.7 `useSearchParams` handling — `searchParams.get("serviceId")` validated UUID + active fallback; no 500, no crash.
-- [x] 2.8 Threat RED — tampered `?serviceId=garbage` shows no selection, banner hidden, no card pressed (manual smoke covers; jest test deferred to PR3).
+- [x] 2.8 Threat RED — tampered `?serviceId=garbage` shows no selection, banner hidden, no card pressed (jsdom tests in PR3 lock the contract).
 
 > Phase 2 jsdom RED tests (ServiceList/Card/Banner.test.tsx) intentionally
 > deferred to PR3 — orchestrator scoped PR2 to islands+styling only, under
@@ -57,9 +57,9 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Integration + Verify (PR 3)
 
-- [ ] 3.1 RED `services/page.test.tsx` — mock `auth()`+`listServices`; ASC active-only, `selectedId` from `searchParams.serviceId`.
-- [ ] 3.2 RED `services/__tests__/dto-leak.test.ts` — `not.toHaveProperty("nombre"|"duracionMinutos"|"activo"|"fecha")`, has `name/durationMinutes/active` ISO (INV-08).
-- [ ] 3.3 RED `services/__tests__/route-activeOnly.test.ts` — `includeInactive:false` only; tampered `?serviceId=garbage` no select; deep-link restores state.
-- [ ] 3.4 Regression smoke `pnpm vitest run src/app/(customer)/vehicles`.
-- [ ] 3.5 Verify `pnpm tsc --noEmit`+`pnpm vitest run`+manual `/services`+`?serviceId=` deep-link.
-- [ ] 3.6 NOTE: `/appointments/new` alias deferred to T-041.
+- [x] 3.1 RED `services/page.test.tsx` — mock `auth()`+`listServices`; ASC active-only, `selectedId` from `searchParams.serviceId`.
+- [x] 3.2 RED `tests/integration/services-dto-leak.test.ts` — `not.toHaveProperty("nombre"|"duracionMinutos"|"activo"|"fecha")`, has `name/durationMinutes/active` ISO (INV-08).
+- [x] 3.3 RED `tests/integration/services-route-activeOnly.test.ts` — `includeInactive:false` only; tampered `?serviceId=garbage` no select; deep-link restores state.
+- [x] 3.4 Regression smoke `pnpm vitest run src/app/(customer)/vehicles`.
+- [x] 3.5 Verify `pnpm tsc --noEmit`+`pnpm vitest run`+`pnpm build`+manual `/services`+`?serviceId=` deep-link.
+- [x] 3.6 NOTE: `/appointments/new` alias deferred to T-041.

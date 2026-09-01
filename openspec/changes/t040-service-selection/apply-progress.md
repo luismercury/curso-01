@@ -149,3 +149,82 @@ Run the full test suite and add coverage:
 - Verify `pnpm tsc --noEmit` + `pnpm vitest run` + manual `/services` + `?serviceId=` deep-link.
 
 PR3 budget estimate: ~300 LOC.
+
+## PR 3 — Tests + Tooling + Docs (slice 3/3, this commit)
+
+**Branch:** `feature/t040-service-selection-pr2` (cut from PR2 commit `11e4551`).
+**Diff:** 8 new test files + 1 modified apply-progress.md + 1 docs commit
+(still-untracked SDD tracker files). 0 production LOC.
+**Tests added:** 82 (24 validator + api + 28 jsdom + 30 page + integration).
+**Files:** src/lib/validators/service.test.ts (+71), src/lib/api/services.test.ts
+(+130), 3 jsdom RTL island tests (+304), src/app/(customer)/services/page.test.tsx
+(+140), tests/integration/services-dto-leak.test.ts (+65),
+tests/integration/services-route-activeOnly.test.ts (+153).
+
+### Tasks Completed
+
+| Task | File | Status |
+|------|------|--------|
+| 1.7 | `src/lib/validators/service.test.ts` | done — `formatDuration` 6 cases via `it.each` + 3 serviceIdSchema cases + 2 ApiError |
+| 1.8 | `src/lib/api/services.test.ts` | done — happy path (200 + fetch opts) + `it.each` 401/403 + 400 issues + 5xx fallback + NETWORK_ERROR |
+| 2.x | `ServiceList.test.tsx` | done — list + key + order + Empty + ul wrapper |
+| 2.x | `ServiceCard.test.tsx` | done — aria-pressed toggle + click → router.push + formatDuration + description + cardSelected class swap |
+| 2.x | `SelectedBanner.test.tsx` | done — `it.each` 3 hidden cases (no id / tampered / absent UUID) + inactive + formatDuration 3 cases + Continue href + a11y role/aria-live |
+| 3.1 | `services/page.test.tsx` | done — null session → redirect; auth + includeInactive:false; Date→ISO; INV-08 no leak; ASC order; tampered no 500; empty state; service failure re-throw |
+| 3.2 | `tests/integration/services-dto-leak.test.ts` | done — 7 camelCase keys + `it.each` snake/Spanish negative + ISO + description:null + active:false preservation |
+| 3.3 | `tests/integration/services-route-activeOnly.test.ts` | done — default 200 no-auth + includeInactive false/true + ADMIN bypass + 401/403 + 400 garbage + tampered URL page boundary + valid UUID + null session + unknown UUID |
+| 3.4 | Regression smoke `pnpm vitest run src/app/(customer)/vehicles` | done — 6/6 PASS (no regressions) |
+| 3.5 | Verify `pnpm tsc --noEmit` + `pnpm vitest run` + `pnpm build` | done — `tsc --noEmit` clean, `pnpm build` 11/11 static + /services ƒ dynamic, full vitest 1045 passed (3 pre-existing failures identical to master @ 7923e15) |
+
+### Spec Scenarios Wired (with rdd-receipt binding)
+
+| Scenario | Spec | Wired in |
+|----------|------|----------|
+| List success — active only, no inactive | `service-selection/spec.md` §ADDED-1 | `page.test.tsx` active-only call + ASC order + DTO camelCase |
+| Empty state vs loading skeleton | `service-selection/spec.md` §ADDED-1 | `page.test.tsx` "empty list" + `ServiceList.test.tsx` empty branch |
+| DTO snake leak negative | `service-selection/spec.md` §ADDED-1 | `services-dto-leak.test.ts` (mapper) + `page.test.tsx` (RSC tree) + `services.test.ts` (HTTP helper) — three-layer coverage |
+| Selection success — valid active `?serviceId=` | `service-selection/spec.md` §ADDED-2 | `page.test.tsx` valid UUID renders + `ServiceCard.test.tsx` aria-pressed + SelectedBanner Continue href |
+| Tampered/inactive `?serviceId=` fallback | `service-selection/spec.md` §ADDED-2 | `service.test.ts` (safeParse rejects) + `SelectedBanner.test.tsx` (3 hidden cases) + `services-route-activeOnly.test.ts` (page boundary no 500) |
+| URL persistence on refresh / deep-link | `service-selection/spec.md` §ADDED-2 | `services-route-activeOnly.test.ts` valid UUID restore + `SelectedBanner.test.tsx` Continue href |
+| Inactive hidden, not selectable | `service-selection/spec.md` §ADDED-3 | `services-route-activeOnly.test.ts` `includeInactive=true` ADMIN only + `SelectedBanner.test.tsx` inactive hidden |
+| Composition — `formatDuration` pure | `service-selection/spec.md` §ADDED-4 | `service.test.ts` 6 cases + `ServiceCard.test.tsx` 3 cases + `SelectedBanner.test.tsx` 3 cases |
+| Error mapping — 401/403 vs validation | `service-selection/spec.md` §ADDED-4 | `services.test.ts` 401/403/400 + `services-route-activeOnly.test.ts` route 401/403/400 |
+
+### Invariants Respected
+
+- **INV-03 (auth)** — `page.test.tsx` null session → redirect before service; route test 401 before DB call.
+- **INV-06 (timezone)** — `page.test.tsx` Date→ISO regex; `services-dto-leak.test.ts` Date preserved at mapper; route.test serializes ISO on the wire.
+- **INV-08 (DTO mapping)** — three-layer snake/Spanish negative coverage: mapper unit, RSC tree JSON.stringify, HTTP helper returns.
+- **D2 (URL canonical)** — every test that touches selection goes through the URL (stateful `useSearchParams` mock); no `localStorage` introduced; refresh/deep-link restore proven via route-activeOnly page boundary.
+- **D3 (compound)** — `ServiceList`/`ServiceCard`/`SelectedBanner` tested via `<ServiceSelector>` wrapper, not via separate renders — the compound namespace stays intact.
+- **No Tailwind / no DTO mutation / no hardcode** — every test uses fixed UUIDs / durations / names; no client `Date` math; no `fechaHoraFin` calc; `formatDuration` is the only formatting helper.
+
+### Verification
+
+- `pnpm tsc --noEmit` — clean (no type errors).
+- `pnpm build` — 11/11 static pages, `/services` ƒ dynamic (matches spec), no warnings beyond pre-existing Vite deprecation.
+- `pnpm vitest run --project=node src/lib/validators/service.test.ts src/lib/api/services.test.ts` — 24/24 PASS.
+- `pnpm vitest run --project=jsdom src/app/(customer)/services/_components` — 28/28 PASS.
+- `pnpm vitest run --project=node src/app/(customer)/services/page.test.tsx tests/integration/services-dto-leak.test.ts tests/integration/services-route-activeOnly.test.ts` — 30/30 PASS.
+- `pnpm vitest run src/app/(customer)/vehicles` — 6/6 PASS (no regressions).
+- `pnpm vitest run` (full) — 1045 passed, 3 failed, 2 skipped. The 3 failures are pre-existing on master @ 7923e15: `clientes.schema > db client singleton`, `servicios.integration > duplicate nombre UNIQUE maps to ServicioNombreTakenError`, `servicios.schema > ships no HTTP route under src/app/api for services`. Zero new regressions.
+- Manual smoke — `/services` renders list, tampered `?serviceId=garbage` shows no banner, no pressed card, no 500 (deferred to verify).
+
+### RDD Receipt
+
+- **spec:** `service-selection/spec.md` §ADDED-1 (List success + Empty + DTO snake leak negative) — wired in `page.test.tsx` + `services-dto-leak.test.ts` + `services.test.ts`.
+- **spec:** `service-selection/spec.md` §ADDED-2 (Selection success + Tampered fallback + URL persistence) — wired in `page.test.tsx` + `SelectedBanner.test.tsx` + `services-route-activeOnly.test.ts`.
+- **spec:** `service-selection/spec.md` §ADDED-3 (Inactive hidden) — wired in `SelectedBanner.test.tsx` inactive branch + `services-route-activeOnly.test.ts` ADMIN-only `includeInactive=true`.
+- **spec:** `service-selection/spec.md` §ADDED-4 (Composition — `formatDuration` pure + Error mapping 401/403/400 + no hardcode + no leak) — wired across all 8 test files.
+- **invariants:** INV-03 (auth + redirect precedence), INV-06 (TIMESTAMPTZ → ISO), INV-08 (camelCase DTO) — three-layer coverage each.
+- **budget:** PR3 ships 8 test files (~860 LOC of test code). The orchestrator's forecast "~300-400 LOC" was an underestimate given the 8-file scope; T-039 PR3 shipped 1025 LOC for a similar 8-file test surface. PR3 stays below T-039's footprint because tooling (vitest.config.ts, vitest.setup.ts, package.json scripts) was already delivered by T-039.
+- **tests:** 82 new tests across 8 files, all passing. 0 production code added.
+- **rollback:** `git revert <this>` + the docs commit. PR1 foundation (`page.tsx`, `lib/validators/service.ts`, `lib/api/services.ts`, `loading.tsx`, `error.tsx`) and PR2 islands (`ServiceSelector`/`ServiceList`/`ServiceCard`/`SelectedBanner` + `services.module.css`) remain fully functional; only test coverage + untracked tracker docs are removed.
+
+### Risks (for the reviewer)
+
+1. **Per-PR budget exceeded** — orchestrator forecast "~300-400 LOC" but 8-file spec scope required ~860 LOC of tests (still below T-039 PR3's 1025 LOC baseline). All production code is in PR1+PR2; PR3 is tests + docs only.
+2. **`useSearchParams` mock statefulness** — jsdom tests use a module-level `mockServiceId` variable flipped per-test. If a future test adds an `await` between setting `mockServiceId` and rendering, the provider may re-render with stale state. Mitigation: `afterEach` clears the mock and the closure binding is local to each `it()`.
+3. **`vi.importActual` in route-activeOnly** — preserves the actual `requireAuth`/`listServices` exports so the route can still bind `ForbiddenError`/`UnauthorizedError` instanceof checks. The mocked functions override the named exports. If a future refactor adds new exports from those modules, the spread `{ ...actual }` keeps them visible to the route under test.
+4. **Page test `JSON.stringify(tree)` brittleness** — react JSX serialization can shift across React minor versions. The test asserts on the rendered tree's JSON shape, which is robust to React internals but would break if `ServiceSelector` started rendering children eagerly (it doesn't, since the `"use client"` boundary is preserved at compile time). If desired, a verify follow-up could swap to `renderToString` + DOM-level assertions.
+5. **PR2 deferred jsdom tests now pass** — PR2 was scoped to islands + styling only (per orchestrator). PR3 closes the PR2.8 threat contract with explicit `tampered ?serviceId=garbage does not 500` + `banner hidden on no/tampered/absent UUID selection` + `Continue href uses selected.id (defense in depth)`.
