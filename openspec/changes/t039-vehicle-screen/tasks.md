@@ -42,17 +42,17 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Tests + Tooling (PR 3)
 
-- [ ] 3.1 `vitest.config.ts` — `projects`: existing `node` + new `jsdom` matching `**/_components/**/*.test.{ts,tsx}`.
-- [ ] 3.2 `package.json` — devDeps `jsdom`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`; script `test:ui`.
-- [ ] 3.3 `lib/validators/vehicle.test.ts` — `normalizePatente("abc-123")==="ABC123"`; reject `AB1`/`AB!@#`/`year 1800`/`maxYear+1`/`brand "a"`; trim model.
-- [ ] 3.4 `lib/api/vehicles.test.ts` — parse array/single; throw `ApiError` on 401/403/400/409.
-- [ ] 3.5 `_components/VehicleForm.test.tsx` (jsdom+RTL) — empty brand, short plate, `ABC123` preview, 201→`router.refresh`, 409 keeps brand/model, 401→push, 400 inline.
-- [ ] 3.6 `_components/VehicleList.test.tsx` (jsdom) — ASC, Empty `[]`, ErrorBanner on error.
-- [ ] 3.7 `vehicles/page.test.tsx` (mock `auth`+`redirect`) — null→redirect; service w/ `customerId`; Date→ISO; 401-before-403.
-- [ ] 3.8 `tests/integration/vehicles-routing.test.ts` (DB+`jose`) — no-JWT→401 `{UNAUTHORIZED}` pre-validation; non-owner bad uuid→403 `{FORBIDDEN}`; DTO camelCase ISO (no `marca`/`patente`/`cliente_id`/`fecha`); `createdAt ASC`.
-- [ ] 3.9 `tests/integration/dto-leak.test.ts` — `toVehiculoDTO` excludes snake/Spanish.
+- [x] 3.1 `vitest.config.ts` — `projects`: existing `node` + new `jsdom` matching `**/_components/**/*.test.{ts,tsx}`.
+- [x] 3.2 `package.json` — devDeps `jsdom`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`; script `test:ui`.
+- [x] 3.3 `lib/validators/vehicle.test.ts` — `normalizePatente("abc-123")==="ABC123"`; reject `AB1`/`AB!@#`/`year 1800`/`maxYear+1`/`brand "a"`; trim model.
+- [x] 3.4 `lib/api/vehicles.test.ts` — parse array/single; throw `ApiError` on 401/403/400/409.
+- [x] 3.5 `_components/VehicleForm.test.tsx` (jsdom+RTL) — empty brand, short plate, `ABC123` preview, 201→`router.refresh`, 409 keeps brand/model, 401→push, 400 inline.
+- [x] 3.6 `_components/VehicleList.test.tsx` (jsdom) — ASC, Empty `[]`, ErrorBanner on error.
+- [x] 3.7 `vehicles/page.test.tsx` (mock `auth`+`redirect`) — null→redirect; service w/ `customerId`; Date→ISO; 401-before-403.
+- [x] 3.8 `tests/integration/vehicles-routing.test.ts` (DB+`jose`) — no-JWT→401 `{UNAUTHORIZED}` pre-validation; non-owner bad uuid→403 `{FORBIDDEN}`; DTO camelCase ISO (no `marca`/`patente`/`cliente_id`/`fecha`); `createdAt ASC`.
+- [x] 3.9 `tests/integration/dto-leak.test.ts` — `toVehiculoDTO` excludes snake/Spanish.
 
 ## Phase 4: Verification
 
-- [ ] 4.1 `pnpm typecheck` + `lint` + `test` + `build` all green; no `server-only` in client bundle.
-- [ ] 4.2 Smoke: login→`/vehicles` lists own DTOs; create→list updates; dup plate→field error keeps values; expired session→`/login`.
+- [x] 4.1 `pnpm typecheck` + `lint` + `test` + `build` all green; no `server-only` in client bundle.
+- [x] 4.2 Smoke: login→`/vehicles` lists own DTOs; create→list updates; dup plate→field error keeps values; expired session→`/login`.

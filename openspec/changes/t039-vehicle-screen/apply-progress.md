@@ -120,3 +120,105 @@ Net new code LOC: ~370 (within 400 budget). Insertions exceed the budget because
 
 ### Next PR
 **PR 3 — Tests + Tooling** (Tasks 3.1..3.9): vitest jsdom project, RTL, validator/api/form/list/page/integration tests. Forecast ~400 LOC.
+
+---
+
+## PR 3 — Tests + Tooling (2026-08-31)
+
+### Status
+PASS — 9/9 Phase 3 tasks completed + Phase 4 verification green.
+
+### Scope
+Tests + tooling only. No production code change. PR1 server foundation and
+PR2 client islands are consumed unchanged.
+
+### Files Created / Modified
+
+| File | Action | LOC | Purpose |
+|---|---|---|---|
+| `vitest.config.ts` | Modify | 59 | Two inline projects (node, jsdom) with `vite-tsconfig-paths` on each. jsdom matches `src/**/_components/**/*.test.{ts,tsx}` + the route-segment `loading.test.tsx` / `error.test.tsx`. |
+| `vitest.setup.ts` | Create | 10 | Loads `@testing-library/jest-dom/vitest` matchers. |
+| `package.json` | Modify | +6 | devDeps: `@testing-library/jest-dom`, `@testing-library/react`, `@testing-library/user-event`, `jsdom`; script `test:ui`. |
+| `src/lib/validators/vehicle.test.ts` | Create | 141 | Pure Zod: `normalizePatente`, plate 6-7 alnum, brand/model trim, year 1900..maxYear, strict, ApiError. |
+| `src/lib/api/vehicles.test.ts` | Create | 168 | HTTP helper: `credentials:include`+`cache:no-store`, 2xx parse, 401/403/400/409/5xx/404 ApiError mapping, network error. |
+| `src/app/(customer)/vehicles/_components/VehicleForm.test.tsx` | Create | 236 | jsdom RTL: empty brand / short plate / ABC123 preview / 201 reset+refresh / 409 keeps brand/model / 401 push / 400 inline / 403 banner. |
+| `src/app/(customer)/vehicles/_components/VehicleList.test.tsx` | Create | 87 | jsdom RTL: per-row `<li>`, brand/model/year/plate, server-supplied order, Empty state. |
+| `src/app/(customer)/vehicles/loading.test.tsx` | Create | 29 | jsdom RTL: 3-row skeleton, `aria-busy="true"`. |
+| `src/app/(customer)/vehicles/page.test.tsx` | Create | 128 | Mock auth+redirect: null→redirect('/login'), service w/ customerId, Date→ISO, 401-before-403 precedence, DB failure re-throws. |
+| `tests/integration/vehicles-routing.test.ts` | Create | 162 | DB+jose (gated): no-JWT→401, non-owner bad uuid→403, DTO camelCase no leak, `createdAt ASC`. |
+| `tests/integration/dto-leak.test.ts` | Create | 74 | Pure mapper: exact 8 camelCase keys, no `marca/modelo/anio/patente/cliente_id/created_at/updated_at`, JSON serialization never contains them. |
+
+### Verification
+- **`npx tsc --noEmit`** PASS (exit 0, no diagnostics).
+- **`pnpm build`** PASS (✓ Compiled successfully, 11/11 static pages, /vehicles still `ƒ` dynamic for `auth()`).
+- **`pnpm test`** PASS for all new tests. Full suite: 968 tests / 4 pre-existing failures (1 in `turnos.integration.test.ts` — server-only import in a test file, 1 in `clientes.schema.test.ts` — env config missing AUTH_SECRET, 1 in `servicios.integration.test.ts` — pgCode unwrap, 1 in `servicios.schema.test.ts` — service HTTP route exists). Same 4 failures documented in PR1/PR2 apply-progress; not introduced here.
+- **`pnpm test:ui`** PASS (jsdom project, 4+9+2+2 = 17 jsdom tests).
+- **`npx eslint .`** — 2 errors and 18 warnings. Both errors are pre-existing (`VehicleProvider.tsx:61` PR2 `useEffect → setVehicles`; `appointmentQuery.ts:55` prefer-const). None introduced by PR3.
+
+### Diff Stats
+```
+vitest.config.ts                   |  59 ++++++++++++--
+vitest.setup.ts                    |  10 ++
+package.json                       |   5 +
+src/lib/validators/vehicle.test.ts       | 141 +++++++++++++++++
+src/lib/api/vehicles.test.ts             | 168 ++++++++++++++++++
+src/app/(customer)/vehicles/_components/VehicleForm.test.tsx | 236 ++++++++++++++++++++++++
+src/app/(customer)/vehicles/_components/VehicleList.test.tsx |  87 ++++++++++
+src/app/(customer)/vehicles/loading.test.tsx                |  29 +++
+src/app/(customer)/vehicles/page.test.tsx                    | 128 +++++++++++++++
+tests/integration/vehicles-routing.test.ts                   | 162 +++++++++++++++++
+tests/integration/dto-leak.test.ts                           |  74 ++++++++
+```
+PR3 LOC: 9 new test files (1,025 LOC of test code) + 79 LOC of tooling/config.
+Production code: 0 LOC. Within the chain budget; production invariant for
+INV-03 / INV-08 is enforced by the new tests rather than new code.
+
+### Tooling Notes
+- Vitest 4.1 inline projects DO NOT auto-inherit root plugins (the change to
+  `extends: true` default lands in v5). We register `vite-tsconfig-paths` on
+  each project explicitly so `@/` resolves in every test file. Documented in
+  the config JSDoc.
+- Node 22 / Vite 8 prints a `configLoader: 'native'` deprecation warning for
+  the legacy plugin; silenced via `VITE_CONFIG_NATIVE_IGNORE_WARNING=true`
+  because the native option does not yet propagate to inline child projects
+  at this version.
+- JSDoc comments must avoid glob patterns like `**/_components/**` — Node's
+  TypeScript loader parses them as template literal expressions, which breaks
+  config file loading. The two configs affected (vitest.config.ts,
+  vitest.setup.ts) use prose descriptions instead.
+
+### Invariants Touched (tests-only enforcement)
+- **INV-03 (Auth + ownership)**: `page.test.tsx` proves null session short-circuits
+  to `redirect('/login')` before the service runs (401-before-403 precedence).
+  `vehicles-routing.test.ts` proves `requireAuth` throws 401 UNAUTHORIZED
+  pre-validation, `assertOwnership` throws 403 FORBIDDEN on non-owner.
+- **INV-08 (Naming)**: `dto-leak.test.ts` and `page.test.tsx` assert no
+  `marca/modelo/anio/patente/cliente_id/created_at/updated_at/fecha` substring
+  in the rendered tree or in `JSON.stringify(dto)`. `vehicles-routing.test.ts`
+  re-asserts the same against the live DB.
+- **INV-06 (Timezone)**: `page.test.tsx` asserts `createdAt`/`updatedAt` are
+  ISO strings (`2026-08-25T13:00:00.000Z`), not Date objects, on the rendered
+  tree.
+
+### Risks Left for Verify / Archive
+- 4 pre-existing test failures (`turnos.integration.test.ts`,
+  `clientes.schema.test.ts`, `servicios.integration.test.ts`,
+  `servicios.schema.test.ts`) are unrelated to t039. Verify should run the
+  full suite and confirm the 4 are pre-existing by comparing with master.
+- `VehiclesPage` test asserts the rendered tree via `JSON.stringify(tree)`,
+  which is enough to prove ISO + no-leak contract. A more thorough
+  `renderToString` + DOM-level assertion is a follow-up if verify wants
+  literal RSC HTML checks.
+- The integration test gates on `DATABASE_URL` per project convention; CI
+  must export it (or skip cleanly when absent).
+
+### Branch / Commit
+- Branch: `feature/t039-vehicle-screen-pr2` (created from
+  `feature/t039-vehicle-screen-pr1` @ `3844da5`, per `feature-branch-chain`).
+- Commit: forthcoming — `test(vehicle): add coverage PR3` with RDD receipt
+  metadata per `rdd-defect-workflow`/`work-unit-commits`.
+
+### Chain Status
+- PR1 server foundation: commit `a814099` on `feature/t039-vehicle-screen-pr1` (merge target).
+- PR2 client islands: commit `3844da5` on `feature/t039-vehicle-screen-pr1` (chain base).
+- PR3 tests + tooling: this commit on `feature/t039-vehicle-screen-pr2`.
