@@ -59,11 +59,11 @@ Branch: `feature/t044-booking-result` from `master` (single PR base = `master`).
 
 ## Phase 3: Verify + Archive (post-merge)
 
-- [ ] 3.1 Run independent `sdd-verify` agent against merged master; PASS required for archive. Files: `openspec/changes/t044-booking-result/verify-report.md`.
+- [x] 3.1 Run independent `sdd-verify` agent against merged master; PASS required for archive. Files: `openspec/changes/t044-booking-result/verify-report.md`.
 
-- [ ] 3.2 Run `sdd-archive` agent to move change to `openspec/changes/archive/2026-09-01-t044-booking-result/` + sync `openspec/specs/booking-result/spec.md` delta + record receipt. Files: archive dir.
+- [x] 3.2 Run `sdd-archive` agent to move change to `openspec/changes/archive/2026-09-01-t044-booking-result/` + sync `openspec/specs/booking-result/spec.md` delta + record receipt. Files: archive dir.
 
-- [ ] 3.3 `git push origin master` (or use `gentle-ai review` gate per RDD). Files: all.
+- [x] 3.3 `git push origin master` (or use `gentle-ai review` gate per RDD). Files: all. (orchestrator-authorized post-archive)
 
 ## DAG (acyclic, fed by T-043)
 
