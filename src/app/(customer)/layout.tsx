@@ -50,6 +50,9 @@ export default async function CustomerLayout({
         <Link href="/services" style={linkStyle}>
           Services
         </Link>
+        <Link href="/appointments/new" style={linkStyle}>
+          Appointments
+        </Link>
       </nav>
       <main style={{ padding: "1.5rem" }}>{children}</main>
     </div>

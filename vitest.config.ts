@@ -44,6 +44,8 @@ export default defineConfig({
             // route-segment RTL tests that need jsdom
             "src/app/(customer)/vehicles/loading.test.tsx",
             "src/app/(customer)/vehicles/error.test.tsx",
+            "src/app/(customer)/appointments/new/loading.test.tsx",
+            "src/app/(customer)/appointments/new/error.test.tsx",
           ],
         },
       },
@@ -56,6 +58,8 @@ export default defineConfig({
             "src/**" + "/_components/**/*.test.{ts,tsx}",
             "src/app/(customer)/vehicles/loading.test.tsx",
             "src/app/(customer)/vehicles/error.test.tsx",
+            "src/app/(customer)/appointments/new/loading.test.tsx",
+            "src/app/(customer)/appointments/new/error.test.tsx",
           ],
           setupFiles: ["./vitest.setup.ts"],
         },
