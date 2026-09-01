@@ -50,6 +50,11 @@ export function isTerminal(status: AppointmentStatus): boolean {
   return status === "RECHAZADO" || status === "CANCELADO";
 }
 
+// T-044 — only active, non-terminal turnos earn the success banner.
+export function isBannerEligible(status: string): boolean {
+  return status === "PENDIENTE" || status === "CONFIRMADO";
+}
+
 export function canTransition(
   from: AppointmentStatus,
   to: AppointmentStatus,
