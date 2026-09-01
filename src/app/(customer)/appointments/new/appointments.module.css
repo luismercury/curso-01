@@ -1,0 +1,129 @@
+/* appointments.module.css
+ * /appointments/new UI (T-041 PR1) — semantic tokens only, no Tailwind.
+ * Mirrors services.module.css / vehicles.module.css precedents. Tokens
+ * reused from globals.css (`--color-*`, `--space-*`, `--radius-*`).
+ *
+ * Each visual state is its own selector — consumers compose by element,
+ * NOT by boolean prop (composition pattern).
+ */
+
+/* RSC page chrome — header + heading + subhead.
+ * Owned by the route segment, not the compound. */
+.pageHeader {
+  margin-bottom: var(--space-4);
+}
+.pageHeading {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-fg);
+}
+.pageSubhead {
+  margin: var(--space-1) 0 0;
+  color: var(--color-fg-muted);
+}
+
+/* Date input field — native <input type="date"> styled to match the
+ * services cards. Same focus ring + invalid border contract. */
+.field {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-4);
+}
+.fieldLabel {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-fg);
+}
+.input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  max-width: 16rem;
+}
+.input:focus {
+  outline: 2px solid var(--color-fg);
+  outline-offset: -1px;
+}
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Closed-day hint — non-blocking advisory text shown alongside the input
+ * when the picked date is in `closedDows`. */
+.hint {
+  margin: var(--space-1) 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-fg-muted);
+}
+.hintWarn {
+  color: var(--color-danger-fg, #b91c1c);
+}
+
+/* Selected context banner — shows the chosen date + Continue href for
+ * T-042. PR2 will swap this for the `<DateSelector.SelectedBanner>`
+ * compound; the styling stays the same. */
+.banner {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.bannerBody {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.bannerTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.bannerMeta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-fg-muted);
+}
+
+/* CTA — generic button-styled link, used by the missing-serviceId guard
+ * to send users back to /services. */
+.cta {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  text-decoration: none;
+  color: var(--color-fg);
+}
+.cta:hover {
+  border-color: var(--color-fg-strong);
+}
+.cta:focus {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 2px;
+}
+.ctaTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.ctaBody {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-fg-muted);
+}
