@@ -42,23 +42,23 @@ Chain strategy: feature-branch-chain
 
 Branch: `feature/t043-booking-form-pr1` from `master`. PR1 base = `master`.
 
-- [ ] 1.1 Create `src/lib/validators/vehicleId.ts` — `vehicleIdSchema = z.string().uuid()` + `isOwner(vehicle, userId)`; pure, client-safe, no `server-only`. Files: `vehicleId.ts`. Deps: none. Est: ~12 LOC.
+- [x] 1.1 Create `src/lib/validators/vehicleId.ts` — `vehicleIdSchema = z.string().uuid()` + `isOwner(vehicle, userId)`; pure, client-safe, no `server-only`. Files: `vehicleId.ts`. Deps: none. Est: ~12 LOC.
 
-- [ ] 1.2 Create `src/lib/validators/vehicleId.test.ts` — vitest: uuid accept/reject, `isOwner` true/false; `safeParse` never throws. Files: `vehicleId.test.ts`. Deps: 1.1. Est: ~30 LOC.
+- [x] 1.2 Create `src/lib/validators/vehicleId.test.ts` — vitest: uuid accept/reject, `isOwner` true/false; `safeParse` never throws. Files: `vehicleId.test.ts`. Deps: 1.1. Est: ~30 LOC.
 
-- [ ] 1.3 Modify `src/app/(customer)/appointments/new/page.tsx` — extend `Promise.all` with `listVehiclesByCustomer(db, session.user.id)`; map via `lib/api/vehicles.ts` `toJson` (INV-08); pass `vehicles` + `userId` to `<VehicleSelector>`; if `vehicles.length === 0` render only the CTA branch (no DateSelector/AvailabilitySlots/BookingForm yet). Keep `force-dynamic`, auth gate, conditional availability fetch unchanged. Files: `page.tsx`. Deps: 1.1, T-040/T-041/T-042. Est: +30 prod LOC. [GWT Auth, Zero vehicles, Authenticated vehicles]
+- [x] 1.3 Modify `src/app/(customer)/appointments/new/page.tsx` — extend `Promise.all` with `listVehiclesByCustomer(db, session.user.id)`; map via `lib/api/vehicles.ts` `toJson` (INV-08); pass `vehicles` + `userId` to `<VehicleSelector>`; if `vehicles.length === 0` render only the CTA branch (no DateSelector/AvailabilitySlots/BookingForm yet). Keep `force-dynamic`, auth gate, conditional availability fetch unchanged. Files: `page.tsx`. Deps: 1.1, T-040/T-041/T-042. Est: +30 prod LOC. [GWT Auth, Zero vehicles, Authenticated vehicles]
 
-- [ ] 1.4 Create `src/app/(customer)/appointments/new/_components/VehicleSelector.tsx` + `VehicleCard.tsx` — `"use client"`; `createContext` + `use()`; `useSearchParams()` reads `?vehicleId=`; `vehicleIdSchema.safeParse` + `vehicles.some(v=>v.id===candidate && v.customerId===userId)` defense-in-depth; `select(id)` → `router.push("?vehicleId="+id, {scroll:false})`; `clear()` → `params.delete("vehicleId")` via `URLSearchParams(searchParams.toString())`. Statics: `List`, `Card` (atomic `<button type="button" role="radio" aria-checked>` showing `brand model (year) — plate`), `SelectedBanner` (only when `selected && selected.customerId === userId`), `ClearButton`, `Empty` (CTA `/vehicles` when `vehicles.length === 0`). Files: `VehicleSelector.tsx`, `VehicleCard.tsx`. Deps: 1.1. Est: ~140 prod LOC. [GWT Selection, Clear, Tampered]
+- [x] 1.4 Create `src/app/(customer)/appointments/new/_components/VehicleSelector.tsx` + `VehicleCard.tsx` — `"use client"`; `createContext` + `use()`; `useSearchParams()` reads `?vehicleId=`; `vehicleIdSchema.safeParse` + `vehicles.some(v=>v.id===candidate && v.customerId===userId)` defense-in-depth; `select(id)` → `router.push("?vehicleId="+id, {scroll:false})`; `clear()` → `params.delete("vehicleId")` via `URLSearchParams(searchParams.toString())`. Statics: `List`, `Card` (atomic `<button type="button" role="radio" aria-checked>` showing `brand model (year) — plate`), `SelectedBanner` (only when `selected && selected.customerId === userId`), `ClearButton`, `Empty` (CTA `/vehicles` when `vehicles.length === 0`). Files: `VehicleSelector.tsx`, `VehicleCard.tsx`. Deps: 1.1. Est: ~140 prod LOC. [GWT Selection, Clear, Tampered]
 
-- [ ] 1.5 Extend `src/app/(customer)/appointments/new/appointments.module.css` — add `.vehicleList`, `.vehicleCard`, `.vehicleSelected`, `.vehicleEmpty`, `.vehicleEmptyCta` tokens. No Tailwind. Files: `appointments.module.css`. Deps: none. Est: +30 prod LOC.
+- [x] 1.5 Extend `src/app/(customer)/appointments/new/appointments.module.css` — add `.vehicleList`, `.vehicleCard`, `.vehicleSelected`, `.vehicleEmpty`, `.vehicleEmptyCta` tokens. No Tailwind. Files: `appointments.module.css`. Deps: none. Est: +30 prod LOC.
 
-- [ ] 1.6 Create `src/app/(customer)/appointments/new/_components/VehicleSelector.test.tsx` — vitest jsdom + RTL + `userEvent.click`: List renders one radio per vehicle; click uuidV → `router.push("?vehicleId="+uuidV, {scroll:false})`; clear → URL without `vehicleId`; tampered `?vehicleId=garbage` or `?vehicleId=uuidV-other-user` → no `aria-checked`, no 500; `Empty` shows CTA `/vehicles` when `vehicles=[]`. Files: `VehicleSelector.test.tsx`. Deps: 1.4, 1.5. Est: ~80 test LOC. [GWT Selection, Clear, Tampered, Zero vehicles]
+- [x] 1.6 Create `src/app/(customer)/appointments/new/_components/VehicleSelector.test.tsx` — vitest jsdom + RTL + `userEvent.click`: List renders one radio per vehicle; click uuidV → `router.push("?vehicleId="+uuidV, {scroll:false})`; clear → URL without `vehicleId`; tampered `?vehicleId=garbage` or `?vehicleId=uuidV-other-user` → no `aria-checked`, no 500; `Empty` shows CTA `/vehicles` when `vehicles=[]`. Files: `VehicleSelector.test.tsx`. Deps: 1.4, 1.5. Est: ~80 test LOC. [GWT Selection, Clear, Tampered, Zero vehicles]
 
-- [ ] 1.7 Extend `src/app/(customer)/appointments/new/page.test.tsx` — RSC delta: vehicles wire assertion, 0-vehicles CTA, auth null → redirect, INV-08 no-leak (`marca`/`patente`/`cliente_id` absent from rendered tree). Files: `page.test.tsx`. Deps: 1.3, 1.4. Est: +30 test LOC. [GWT Auth, Zero vehicles, INV-08]
+- [x] 1.7 Extend `src/app/(customer)/appointments/new/page.test.tsx` — RSC delta: vehicles wire assertion, 0-vehicles CTA, auth null → redirect, INV-08 no-leak (`marca`/`patente`/`cliente_id` absent from rendered tree). Files: `page.test.tsx`. Deps: 1.3, 1.4. Est: +30 test LOC. [GWT Auth, Zero vehicles, INV-08]
 
-- [ ] 1.8 Run `pnpm vitest run` + `pnpm typecheck` + `pnpm lint` — full suite green; PR1 budget ~290 (<400). Files: all. Deps: 1.x.
+- [x] 1.8 Run `pnpm vitest run` + `pnpm typecheck` + `pnpm lint` — full suite green; PR1 budget ~290 (<400). Files: all. Deps: 1.x.
 
-- [ ] 1.9 Commit `feat(appointments): T-043 PR1 vehicle selector (RSC + compound, no submit)` with RDD receipt. Branch: `feature/t043-booking-form-pr1` from `master`. PR1 base = `master`. Files: all. Deps: 1.8.
+- [x] 1.9 Commit `feat(appointments): T-043 PR1 vehicle selector (RSC + compound, no submit)` with RDD receipt. Branch: `feature/t043-booking-form-pr1` from `master`. PR1 base = `master`. Files: all. Deps: 1.8.
 
 ## Phase 2: PR2 — BookingForm + Submit + Error Handling
 
@@ -86,11 +86,11 @@ Branch: `feature/t043-booking-form-pr2` from `feature/t043-booking-form-pr1` tip
 
 ## Phase 3: Verify + Archive (after PR2 merged to master)
 
-- [ ] 3.1 Run independent `sdd-verify` agent against merged master; PASS required for archive. Files: `openspec/changes/t043-booking-form/verify-report.md`.
+- [x] 3.1 Run independent `sdd-verify` agent against merged master; PASS required for archive. Files: `openspec/changes/t043-booking-form/verify-report.md`.
 
-- [ ] 3.2 Run `sdd-archive` agent to move change to `openspec/changes/archive/2026-09-01-t043-booking-form/` + sync `openspec/specs/booking-form/spec.md` delta + record receipt. Files: archive dir.
+- [x] 3.2 Run `sdd-archive` agent to move change to `openspec/changes/archive/2026-09-01-t043-booking-form/` + sync `openspec/specs/booking-form/spec.md` delta + record receipt. Files: archive dir.
 
-- [ ] 3.3 `git push origin master` (or use `gentle-ai review` gate per RDD). Files: all.
+- [x] 3.3 `git push origin master` (or use `gentle-ai review` gate per RDD). Files: all.
 
 ## DAG (acyclic, feeds T-044)
 
