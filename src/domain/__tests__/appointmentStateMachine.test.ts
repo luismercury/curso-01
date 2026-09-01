@@ -4,6 +4,7 @@ import {
   AppointmentStatusSchema,
   allowedTransitions,
   canTransition,
+  isBannerEligible,
   isTerminal,
 } from "@/domain/appointmentStateMachine";
 
@@ -193,15 +194,28 @@ describe("canTransition — COMPLETADO rejection", () => {
       canTransition(
         "PENDIENTE" as unknown as typeof AppointmentStatus[number],
         "COMPLETADO" as unknown as typeof AppointmentStatus[number],
-        "ADMINISTRADOR"
+        "ADMINISTRADOR",
       )
     ).toBe(false);
     expect(
       canTransition(
         "COMPLETADO" as unknown as typeof AppointmentStatus[number],
         "CANCELADO" as unknown as typeof AppointmentStatus[number],
-        "ADMINISTRADOR"
+        "ADMINISTRADOR",
       )
     ).toBe(false);
+  });
+});
+
+describe("isBannerEligible — T-044", () => {
+  it.each([
+    ["PENDIENTE", true],
+    ["CONFIRMADO", true],
+    ["CANCELADO", false],
+    ["RECHAZADO", false],
+    ["COMPLETADO", false],
+    ["unknown", false],
+  ] as const)("isBannerEligible(%s) === %s", (status, expected) => {
+    expect(isBannerEligible(status)).toBe(expected);
   });
 });
