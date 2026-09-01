@@ -1,10 +1,10 @@
 /**
- * RSC shell for `/(customer)/appointments/new` — T-041 + T-042.
+ * RSC shell for `/(customer)/appointments/new` — T-041 + T-042 + T-043 PR1.
  *
  * Mirrors T-040 /services flow:
  *   1. `auth()` → redirect /login if null (INV-03 defensive).
- *   2. `Promise.all([getWorkshopConfig, listServices])` — parallel, no
- *      waterfall.
+ *   2. `Promise.all([getWorkshopConfig, listServices, listVehiclesByCustomer])`
+ *      — parallel, no waterfall.
  *   3. `?serviceId=` UUID safeParse + `services.some(active)` → `selectedService`
  *      (tampered/inactive → null, no 500).
  *   4. `?date=` `dateSchema.safeParse` + `getBaDayUtcRange` overflow +
@@ -18,15 +18,24 @@
  *      yields `availableSlots: string[]` of bookable HH:mm. Only
  *      primitives cross to the client island (INV-08). Otherwise
  *      `availableSlots = null` — no domain call, no 500.
- *   7. Render either CTA → /services, the `<DateSelector>` compound
- *      alone, or `<DateSelector>` + `<AvailabilitySlots>` once a valid
- *      date is paired with a valid service. The islands own URL writes
- *      (`useSearchParams` + `router.push`) and sibling preservation
- *      (serviceId / date / vehicleId) for T-042/T-043.
+ *   7. T-043 PR1: vehicles wire — `listVehiclesByCustomer(db, session.user.id)`
+ *      server-direct (design D1, no `/api/customers/{id}/vehicles` hop)
+ *      → `VehiculoDTO[]` → `VehicleDTOJson[]` (INV-08, brand/model/year/
+ *      plate/customerId/createdAt/updatedAt ISO). When `vehicles.length === 0`
+ *      the page renders the CTA branch only (no DateSelector, no
+ *      AvailabilitySlots, no BookingForm) so the user can add a vehicle
+ *      before the booking flow can start. PR2 wires the
+ *      `<BookingForm>` compound once all four selections resolve.
+ *   8. Render either CTA → /services, the 0-vehicle CTA → /vehicles,
+ *      `<DateSelector>` alone, or `<DateSelector>` + `<AvailabilitySlots>`
+ *      + `<VehicleSelector>` once a valid service is paired with the
+ *      vehicle list. The islands own URL writes (`useSearchParams` +
+ *      `router.push`) and sibling preservation (serviceId / date /
+ *      vehicleId) for T-042/T-043.
  *
- * PR1 shipped an inline `<form method=get>` placeholder. PR2 wires the
- * `<DateSelector>` compound. T-042 PR-A wires the conditional fetch +
- * CSS; T-042 PR-B wires the `<AvailabilitySlots>` compound.
+ * PR1 (T-043) shipped the RSC wire + 0-vehicle CTA + `<VehicleSelector>`
+ * compound. PR2 wires `<BookingForm>` + submit + 409/403/422/401 envelope.
+ * Confirm/submit wiring is intentionally absent in PR1 — chain discipline.
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -34,6 +43,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
 import { db } from "@/db";
 import { listServices } from "@/services/servicioService";
+import { listVehiclesByCustomer } from "@/services/vehicleService";
 import { getWorkshopConfig } from "@/config/workshopConfig";
 import {
   addBaDays,
@@ -51,10 +61,13 @@ import {
 } from "@/services/availability/availabilityService";
 import { formatSlotsAsHHmm } from "@/services/availability/slotGenerator";
 import type { ServicioDTO } from "@/db/mappers/servicio";
+import type { VehiculoDTO } from "@/db/mappers/vehiculo";
 import type { ServiceDTOJson } from "@/lib/api/services";
+import type { VehicleDTOJson } from "@/lib/api/vehicles";
 import styles from "./appointments.module.css";
 import { DateSelector } from "./_components/DateSelector";
 import { AvailabilitySlots } from "./_components/AvailabilitySlots";
+import { VehicleSelector } from "./_components/VehicleSelector";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -90,18 +103,30 @@ export default async function AppointmentsNewPage({
   searchParams,
 }: AppointmentsNewPageProps) {
   const session = await auth();
-  if (!session?.user) {
+  const sessionUserId = (session?.user as { id?: string } | undefined)?.id;
+  if (!sessionUserId) {
     redirect("/login");
   }
+  // Narrow `userId` to `string` so downstream service calls (which
+  // require `string`) typecheck. Mirrors the pattern in
+  // `vehicles/page.tsx:64-70`.
+  const userId: string = sessionUserId;
 
   const params = await searchParams;
 
-  const [config, dtos] = await Promise.all([
+  const [config, dtos, vehicleDtos] = await Promise.all([
     getWorkshopConfig(db),
     listServices(db, { includeInactive: false }),
+    listVehiclesByCustomer(db, userId),
   ]);
 
   const services: ServiceDTOJson[] = dtos.map(toJson);
+
+  // T-043 PR1 (INV-08): only `VehicleDTOJson` primitives cross to the
+  // client island. ISO date strings, camelCase English keys
+  // (brand/model/year/plate/customerId/createdAt/updatedAt) — never
+  // `marca` / `modelo` / `anio` / `patente` / `cliente_id` / `created_at`.
+  const vehicles: VehicleDTOJson[] = vehicleDtos.map(toVehicleJson);
 
   const candidateService = params.serviceId;
   const validUuid =
@@ -164,6 +189,42 @@ export default async function AppointmentsNewPage({
             <p className={styles.ctaTitle}>Select a service first</p>
             <p className={styles.ctaBody}>
               Pick the service you want to book before choosing a date.
+            </p>
+          </div>
+          <span aria-hidden="true">→</span>
+        </Link>
+      </section>
+    );
+  }
+
+  // T-043 PR1 — 0-vehicle CTA branch (spec scenario: "Zero vehicles").
+  // No DateSelector / AvailabilitySlots / BookingForm yet — the booking
+  // flow cannot start without a vehicle. The CTA mirrors the T-040
+  // missing-service CTA: a single `<Link href="/vehicles">` so the user
+  // owns the create-vehicle action (design D E1). PR2 keeps this branch
+  // unchanged — when the user lands back here with a vehicle the page
+  // re-renders the date/availability flow.
+  if (vehicles.length === 0) {
+    return (
+      <section aria-labelledby="appointments-new-heading">
+        <header className={styles.pageHeader}>
+          <h1 id="appointments-new-heading" className={styles.pageHeading}>
+            Pick a vehicle
+          </h1>
+          <p className={styles.pageSubhead}>
+            For {selectedService.name} ({selectedService.durationMinutes} min)
+          </p>
+        </header>
+        <Link
+          href="/vehicles"
+          className={styles.cta}
+          data-testid="booking-empty-vehicles"
+        >
+          <div className={styles.bannerBody}>
+            <p className={styles.ctaTitle}>Add a vehicle to book</p>
+            <p className={styles.ctaBody}>
+              You need at least one vehicle on file before you can book an
+              appointment.
             </p>
           </div>
           <span aria-hidden="true">→</span>
@@ -256,6 +317,25 @@ export default async function AppointmentsNewPage({
           </AvailabilitySlots>
         </div>
       ) : null}
+
+      {/* T-043 PR1 — VehicleSelector compound. Reachable because the
+          0-vehicle CTA branch above already returned. The island owns
+          URL writes for `?vehicleId=uuidV` with `vehicleIdSchema`
+          + `isOwner` defense in depth (INV-03). Sibling preservation
+          (serviceId / date) is the island's responsibility via
+          `URLSearchParams(searchParams.toString())`. PR2 wires the
+          `<BookingForm>` Submit/Confirm once all 4 selections resolve —
+          that compound is NOT present on PR1 tip (chain discipline). */}
+      <VehicleSelector
+        vehicles={vehicles}
+        userId={userId}
+        serviceId={selectedService.id}
+        date={selectedDate}
+      >
+        <VehicleSelector.List />
+        <VehicleSelector.SelectedBanner />
+        <VehicleSelector.ClearButton />
+      </VehicleSelector>
     </section>
   );
 }
@@ -267,6 +347,28 @@ function toJson(dto: ServicioDTO): ServiceDTOJson {
     description: dto.description,
     durationMinutes: dto.durationMinutes,
     active: dto.active,
+    createdAt: dto.createdAt.toISOString(),
+    updatedAt: dto.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * T-043 PR1 — Map internal Spanish/Date-bearing `VehiculoDTO` to the
+ * INV-08 camelCase JSON shape that crosses the RSC → client boundary.
+ *
+ * Mirror of `lib/api/vehicles.ts:VehicleDTOJson`. Implemented locally
+ * (instead of importing `toVehiculoDTO` + mapping again) to keep the
+ * dependency graph flat: page.tsx already pulls `lib/api/vehicles` for
+ * the type only, so the map lives next to its consumer.
+ */
+function toVehicleJson(dto: VehiculoDTO): VehicleDTOJson {
+  return {
+    id: dto.id,
+    customerId: dto.customerId,
+    brand: dto.brand,
+    model: dto.model,
+    year: dto.year,
+    plate: dto.plate,
     createdAt: dto.createdAt.toISOString(),
     updatedAt: dto.updatedAt.toISOString(),
   };

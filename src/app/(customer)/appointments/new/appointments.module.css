@@ -196,3 +196,117 @@
   font-size: 0.875rem;
   text-align: center;
 }
+
+/* T-043 PR1 — VehicleSelector compound tokens.
+ * Mirrors the slot grid: radiogroup of native <button type="button">
+ * styled to look like the existing .input/.banner siblings. Selected
+ * state uses .vehicleSelected as its own selector (composition pattern,
+ * not a boolean prop on .vehicleCard).
+ *
+ * INV-08: visuals are stateless — the parent island owns URL writes via
+ * vehicleIdSchema-validated `?vehicleId=`. No business logic in CSS. */
+.vehicleSection {
+  margin-top: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+.vehicleHeading {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-fg);
+}
+.vehicleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--space-2);
+}
+.vehicleCard {
+  appearance: none;
+  width: 100%;
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  display: grid;
+  gap: var(--space-1);
+}
+.vehicleCard:hover {
+  border-color: var(--color-fg-strong);
+}
+.vehicleCard:focus {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 1px;
+}
+.vehicleCard:focus:not(:focus-visible) {
+  outline: none;
+}
+.vehicleSelected {
+  /* Composed onto .vehicleCard when the card matches the URL `?vehicleId=`.
+   * Selector stays separate so we never grow a boolean prop on the
+   * button itself (vercel-composition-patterns). */
+  composes: vehicleCard;
+  border-color: var(--color-fg-strong);
+  background: var(--color-fg);
+  color: var(--color-bg);
+}
+.vehicleSelected:hover {
+  border-color: var(--color-fg-strong);
+}
+.vehicleCardPrimary {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+.vehicleCardSecondary {
+  font-size: 0.8125rem;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vehicleSelected .vehicleCardSecondary {
+  color: var(--color-bg);
+  opacity: 0.85;
+}
+.vehicleEmpty {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: var(--space-1);
+}
+.vehicleEmptyTitle {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.vehicleEmptyBody {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-fg-muted);
+}
+.vehicleEmptyCta {
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  justify-self: start;
+}
+.vehicleEmptyCta:hover {
+  border-color: var(--color-fg-strong);
+}
+.vehicleEmptyCta:focus {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 1px;
+}
