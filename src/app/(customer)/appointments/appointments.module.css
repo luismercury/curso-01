@@ -120,6 +120,18 @@
   overflow-wrap: anywhere;
 }
 
+/* Card actions — right-side column grouping the status badge and the
+ * optional `Cancelar` trigger. Uses a flex row so the badge keeps its
+ * `role="status"` semantics and the trigger sits flush to the right.
+ * `flex-wrap` keeps the row intact on narrow viewports. */
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 /* Pagination — nav element with prev / label / next. Buttons follow
  * the .input / .vehicleCard hover + focus ring contract so the
  * controls feel native to the page. */

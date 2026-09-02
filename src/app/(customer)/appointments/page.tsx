@@ -16,6 +16,8 @@ import type { AuthUser } from "@/lib/auth/requireAuth";
 import { BookingConfirmation } from "./_components/BookingConfirmation";
 import { AppointmentList } from "./_components/AppointmentList";
 
+import styles from "./appointments.module.css";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -65,7 +67,7 @@ export default async function AppointmentsPage({ searchParams }: Props) {
 
   return (
     <section aria-labelledby="appointments-heading">
-      <h1 id="appointments-heading">Próximos turnos</h1>
+      <h1 id="appointments-heading" className={styles.headingFocusTarget} tabIndex={-1}>Próximos turnos</h1>
       <p>{turnoJson ? "Reserva confirmada" : `${enrichedList.pagination.total} turnos próximos`}</p>
 
       {turnoJson ? (

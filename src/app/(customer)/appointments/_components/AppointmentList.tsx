@@ -1,22 +1,9 @@
 "use client";
 /**
  * AppointmentList — compound namespace for the upcoming-appointments
- * screen (T-045 UI-04).
+ * screen (T-045 UI-04 + T-046 cancel affordance).
  *
- * PR2a (this commit): scaffolds the namespace with Root (provider),
- * Empty (zero-state), and Skeleton (loading placeholder). Card, Badge,
- * and Pagination are no-op stubs — they return `null` so the namespace
- * shape + typecheck stay consistent while the rest of the compound
- * lands across the PR2b/PR2c/PR2d stacked chain.
- *
- * Forced-fragmentation note (T-045 PR2 chain):
- * The original single-file compound was split across 4 stacked PRs by
- * maintainer request (size budget <400 lines per PR). Card lands in
- * PR2b, Pagination in PR2c, and the page.tsx RSC integration in PR2d.
- * In this intermediate slice, Card / Badge / Pagination are placeholders
- * — UI tests for them are skipped until the corresponding slice lands.
- *
- * Composition (no boolean props, no isPending doubling):
+ * Composition (no boolean props, no isCancellable doubling):
  *
  *   <AppointmentList.Root timezone={tz} pagination={p}>
  *     {list.length === 0 ? (
@@ -33,24 +20,44 @@
  *     )}
  *   </AppointmentList.Root>
  *
- * INV-06: every date crosses the boundary as an ISO 8601 string;
- * `Intl.DateTimeFormat({ timeZone: ctx.timezone })` produces the BA
- * wall-clock copy. `suppressHydrationWarning` on the <time> elements
- * shields against the env-Intl-vs-server-Intl mismatch flagged by
- * React 19 hydration.
+ * T-046 PR-B adds `CancelAction` (per card) + `CancelDialog` (shared
+ * at Root, 1b variant of design D01) as **explicit subcomponents** —
+ * never an `isCancellable` boolean on Card
+ * (`vercel-composition-patterns:architecture-avoid-boolean-props`).
+ * The native `<dialog>` element provides focus trap, ESC, and
+ * inertness via `showModal()` — we never re-implement them
+ * (WCAG 2.4.7 + 2.5.8).
  *
- * INV-08: only camelCase + ISO primitives cross the RSC → client
- * boundary (`EnrichedTurnoDTOJson`). The compound never renders
- * snake_case keys; tests assert this with a `SNAKE` negative scan
- * (added in PR2b once Card ships and snake can leak through it).
- *
- * The `useAppointment()` guard mirrors `BookingConfirmation.useCtx` —
- * throwing inside a subcomponent used outside Root produces a loud
- * render error instead of a silently empty UI.
+ * INV-02: `canCancel` mirrors server `canTransition`; the server is
+ * truth (assertOwnership → ensureFuture → canTransition).
+ * INV-06: ISO 8601 strings cross the RSC → client boundary; BA
+ * wall-clock copy via `Intl.DateTimeFormat({ timeZone: ctx.timezone })`;
+ * `canCancel` compares `Date#getTime()` UTC ms.
+ * INV-08: only camelCase + ISO primitives cross the boundary; tests
+ * assert this with a `SNAKE` negative scan extended in PR-B to cover
+ * the dialog. The `useAppointment()` + `useCancel()` guards throw
+ * loudly when a subcomponent is used outside `<AppointmentList.Root>`.
  */
-import { createContext, use, useCallback, useMemo } from "react";
+import {
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { EnrichedTurnoDTOJson } from "@/lib/api/appointments";
+
+import {
+  buildLoginNext,
+  cancelAppointment,
+  canCancel,
+  type EnrichedTurnoDTOJson,
+} from "@/lib/api/appointments";
+import { ApiError } from "@/lib/validators/service";
 
 import styles from "../appointments.module.css";
 
@@ -90,6 +97,203 @@ export function useAppointment(): AppointmentListContextValue {
     throw new Error("AppointmentList subcomponents must be used inside <AppointmentList.Root>");
   }
   return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// T-046 — Cancel affordance (REQ-06/07/08/09, D01..D07).
+//
+// 1b variant (design D01 Choice): the dialog state lives in a
+// `CancelContext` so a single `<dialog>` mounts at Root, not one per
+// card. Card renders only the `CancelAction` trigger; the dialog reads
+// `currentAppointment` from the context and acts on whichever row the
+// user picked.
+//
+// Map error → user copy switches on `body.error.code` (NOT status, per
+// design D06) so the UI stays stable when the server envelope evolves.
+// The 409 border case (`now >= start`) renders the exact copy
+// `"El turno ya comenzó"` (REQ-09, GWT 9.5) so a tampered page can be
+// matched against the spec line-for-line.
+// ---------------------------------------------------------------------------
+
+interface CancelContextValue {
+  /** The appointment the dialog is acting on; `null` when closed. */
+  currentAppointment: EnrichedTurnoDTOJson | null;
+  /** ID of the appointment whose PATCH is in flight, else `null`. */
+  pendingId: string | null;
+  /** True while a `startTransition` is awaiting `cancelAppointment`. */
+  isTransitionPending: boolean;
+  /** Last error from `cancelAppointment` (mapped copy), or `null`. */
+  error: ApiError | null;
+  /** Polite announcement rendered after success, or `null`. */
+  successMessage: string | null;
+  actions: {
+    open: (appointment: EnrichedTurnoDTOJson) => void;
+    close: () => void;
+    confirm: () => void;
+  };
+}
+
+const CancelContext = createContext<CancelContextValue | null>(null);
+
+/**
+ * Mirror of `useAppointment()` for the cancel subcomponents. Throws if
+ * used outside a `<AppointmentList.Root>` provider.
+ */
+function useCancel(): CancelContextValue {
+  const ctx = use(CancelContext);
+  if (ctx === null) {
+    throw new Error("AppointmentList.Cancel* must be used inside <AppointmentList.Root>");
+  }
+  return ctx;
+}
+
+/**
+ * Pure message-mapper. Switches on `body.error.code` (NOT status) per
+ * design D06. The 409 border branch (server-reported
+ * `INVALID_APPOINTMENT_STATE` with `now >= startDateTime`) is
+ * rewritten to the EXACT copy `"El turno ya comenzó"` required by
+ * REQ-09 / GWT 9.5. Anything else falls back to the server message
+ * (carries the original code + status on the `ApiError`).
+ *
+ * Never throws; returns a new `ApiError` so the caller can `setError`
+ * it directly.
+ */
+function mapError(e: ApiError, target: EnrichedTurnoDTOJson): ApiError {
+  if (e.code === "FORBIDDEN") {
+    return new ApiError({
+      code: e.code,
+      message: "No tienes permiso para cancelar este turno.",
+      status: e.status,
+    });
+  }
+  if (e.code === "NOT_FOUND" || e.code === "APPOINTMENT_NOT_FOUND") {
+    return new ApiError({
+      code: e.code,
+      message: "El turno no existe.",
+      status: e.status,
+    });
+  }
+  if (e.code === "INVALID_APPOINTMENT_STATE") {
+    const startedAlready = new Date(target.startDateTime).getTime() <= Date.now();
+    if (startedAlready) {
+      return new ApiError({
+        code: e.code,
+        message: "El turno ya comenzó",
+        status: e.status,
+      });
+    }
+    return new ApiError({
+      code: e.code,
+      message: "El turno ya no puede cancelarse.",
+      status: e.status,
+    });
+  }
+  return e;
+}
+
+/**
+ * Cancel provider — owns the `currentAppointment / pendingId / error /
+ * successMessage` state machine and exposes three actions
+ * (`open / close / confirm`). `confirm` wraps `cancelAppointment` in
+ * `useTransition` so the UI can disable the trigger + dialog Confirm
+ * while the PATCH is in flight (guards double-`409` per design D05 +
+ * REQ-08).
+ */
+function CancelProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [currentAppointment, setCurrentAppointment] = useState<EnrichedTurnoDTOJson | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isTransitionPending, startTransition] = useTransition();
+
+  const close = useCallback(() => {
+    setCurrentAppointment(null);
+    setError(null);
+  }, []);
+
+  const open = useCallback((appointment: EnrichedTurnoDTOJson) => {
+    setError(null);
+    setSuccessMessage(null);
+    setCurrentAppointment(appointment);
+  }, []);
+
+  /**
+   * Move focus after a successful cancel. Per REQ-09 the row is gone
+   * after `router.refresh()`; the trigger that opened the dialog is
+   * also gone. Prefer the page heading; fall back to the next
+   * `Cancelar` button; fall back to nothing.
+   */
+  const focusAfterRemoval = useCallback((removedId: string) => {
+    requestAnimationFrame(() => {
+      const heading = document.getElementById("appointments-heading");
+      if (heading !== null) {
+        heading.focus();
+        return;
+      }
+      const triggers = document.querySelectorAll<HTMLButtonElement>(
+        '[data-testid="appointment-cancel"]',
+      );
+      for (const trigger of triggers) {
+        if (trigger.getAttribute("data-appointment-id") !== removedId) {
+          trigger.focus();
+          return;
+        }
+      }
+    });
+  }, []);
+
+  const confirm = useCallback(() => {
+    if (currentAppointment === null) return;
+    const target = currentAppointment;
+    setPendingId(target.id);
+    setError(null);
+    startTransition(async () => {
+      try {
+        await cancelAppointment(target.id);
+        setCurrentAppointment(null);
+        setPendingId(null);
+        setSuccessMessage("Turno cancelado");
+        router.refresh();
+        focusAfterRemoval(target.id);
+      } catch (caught: unknown) {
+        setPendingId(null);
+        if (caught instanceof ApiError) {
+          if (caught.code === "UNAUTHORIZED") {
+            const next = buildLoginNext(pathname, searchParams.toString());
+            window.location.assign(next);
+            return;
+          }
+          setError(mapError(caught, target));
+          return;
+        }
+        // Non-ApiError — surface the original message verbatim.
+        setError(
+          new ApiError({
+            code: "UNKNOWN_ERROR",
+            message: caught instanceof Error ? caught.message : "Error inesperado",
+            status: 0,
+          }),
+        );
+      }
+    });
+  }, [currentAppointment, focusAfterRemoval, pathname, router, searchParams]);
+
+  const value = useMemo<CancelContextValue>(
+    () => ({
+      currentAppointment,
+      pendingId,
+      isTransitionPending,
+      error,
+      successMessage,
+      actions: { open, close, confirm },
+    }),
+    [currentAppointment, pendingId, isTransitionPending, error, successMessage, open, close, confirm],
+  );
+
+  return <CancelContext value={value}>{children}</CancelContext>;
 }
 
 interface AppointmentListRootProps {
@@ -134,7 +338,15 @@ function AppointmentListRoot({ timezone, pagination, children }: AppointmentList
     () => ({ timezone, dateFormatter, timeFormatter, pagination }),
     [timezone, dateFormatter, timeFormatter, pagination],
   );
-  return <AppointmentListContext value={value}>{children}</AppointmentListContext>;
+  return (
+    <AppointmentListContext value={value}>
+      <CancelProvider>
+        {children}
+        <AppointmentListCancelDialog />
+        <AppointmentListCancelLiveRegions />
+      </CancelProvider>
+    </AppointmentListContext>
+  );
 }
 
 /**
@@ -284,8 +496,179 @@ function AppointmentListCard({ appointment }: AppointmentListCardProps) {
       <div className={styles.cardVehicle} data-testid="card-vehicle">
         {appointment.vehicleLabel}
       </div>
-      <AppointmentListStatusBadge status={appointment.status} />
+      <div className={styles.cardActions}>
+        <AppointmentListStatusBadge status={appointment.status} />
+        <AppointmentList.CancelAction appointment={appointment} />
+      </div>
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// T-046 PR-B — CancelAction + CancelDialog.
+//
+// `CancelAction` is the per-card trigger; it consults `canCancel`
+// (REQ-06, INV-02/06) and renders `null` when the appointment is in a
+// terminal state or already started. When the row IS eligible, the
+// button opens the shared dialog via `actions.open(appointment)` and
+// reflects `isPending` from the context (disables itself + sets
+// `aria-busy` so the user can't fire a second PATCH while the first
+// is in flight).
+//
+// `CancelDialog` mounts once at Root (1b variant of design D01). The
+// native `<dialog>` element gives us focus trap, ESC-to-close, and
+// inertness for free via `showModal()` — we never re-implement any of
+// those. `useEffect` syncs the `open` attribute to the React state
+// (`currentAppointment !== null`).
+// ---------------------------------------------------------------------------
+
+interface AppointmentListCancelActionProps {
+  appointment: EnrichedTurnoDTOJson;
+}
+
+/**
+ * `CancelAction` — per-card `Cancelar` trigger (REQ-06, REQ-07).
+ *
+ * Renders only when `canCancel(appointment)` is true. The button is
+ * `disabled` + `aria-busy` while the PATCH for THIS row is in flight
+ * (other rows stay enabled so the user can pick a different target).
+ * `data-appointment-id` is exposed for the focus-shift fallback in
+ * `focusAfterRemoval`.
+ */
+function AppointmentListCancelAction({ appointment }: AppointmentListCancelActionProps) {
+  const { actions, pendingId, isTransitionPending } = useCancel();
+  if (!canCancel(appointment)) return null;
+  const isPending = isTransitionPending && pendingId === appointment.id;
+  return (
+    <button
+      type="button"
+      className={styles.cancelTrigger}
+      data-testid="appointment-cancel"
+      data-appointment-id={appointment.id}
+      aria-label="Cancelar turno"
+      disabled={isPending}
+      aria-busy={isPending}
+      onClick={() => actions.open(appointment)}
+    >
+      {isPending ? "Cancelando…" : "Cancelar"}
+    </button>
+  );
+}
+
+/**
+ * `CancelDialog` — the single shared confirmation dialog (REQ-07,
+ * REQ-09). Native `<dialog>` + `showModal()` provides focus trap, ESC,
+ * and inertness; the `onClose` handler is the only manual hook (so we
+ * can clear `currentAppointment` when the user dismisses with ESC or
+ * by clicking the backdrop).
+ *
+ * Error rendering uses `role="alert"` + `aria-live="assertive"` so a
+ * screen reader announces the failure immediately. Success uses a
+ * separate polite live region at Root (kept outside the dialog so the
+ * announcement persists after the dialog closes).
+ */
+function AppointmentListCancelDialog() {
+  const { currentAppointment, error, isTransitionPending, actions } = useCancel();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (dlg === null) return;
+    if (currentAppointment !== null && !dlg.open) {
+      dlg.showModal();
+    } else if (currentAppointment === null && dlg.open) {
+      dlg.close();
+    }
+  }, [currentAppointment]);
+
+  const open = currentAppointment !== null;
+  // Volver (cancel) is the first focusable so the safer action is the
+  // default. Confirmar is one Tab away. While a PATCH is in flight
+  // both are disabled — guards double-cancel (REQ-08).
+  return (
+    <dialog
+      ref={dialogRef}
+      role="dialog"
+      aria-labelledby={titleId}
+      aria-modal="true"
+      className={styles.dialog}
+      data-testid="cancel-dialog"
+      data-open={open ? "true" : "false"}
+      onClose={() => {
+        if (!isTransitionPending) actions.close();
+      }}
+    >
+      {open && currentAppointment !== null ? (
+        <div className={styles.dialogInner}>
+          <h2 id={titleId} className={styles.dialogTitle} data-testid="cancel-dialog-title">
+            ¿Cancelar este turno?
+          </h2>
+          <p className={styles.dialogMessage} data-testid="cancel-dialog-message">
+            Vas a cancelar tu turno de <strong>{currentAppointment.serviceName}</strong> el día{" "}
+            {new Date(currentAppointment.startDateTime).toLocaleDateString("es-AR", {
+              timeZone: "America/Argentina/Buenos_Aires",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            })}
+            . Esta acción no se puede deshacer.
+          </p>
+          {error !== null ? (
+            <p
+              className={styles.alertError}
+              role="alert"
+              aria-live="assertive"
+              data-testid="cancel-dialog-error"
+              data-error-code={error.code}
+            >
+              {error.message}
+            </p>
+          ) : null}
+          <div className={styles.dialogActions}>
+            <button
+              type="button"
+              className={styles.dialogCancel}
+              data-testid="cancel-dialog-cancel"
+              onClick={() => actions.close()}
+              disabled={isTransitionPending}
+            >
+              Volver
+            </button>
+            <button
+              type="button"
+              className={styles.dialogConfirm}
+              data-testid="cancel-dialog-confirm"
+              onClick={() => actions.confirm()}
+              disabled={isTransitionPending}
+              aria-busy={isTransitionPending}
+            >
+              {isTransitionPending ? "Cancelando…" : "Confirmar"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </dialog>
+  );
+}
+
+/**
+ * `CancelLiveRegions` — visually hidden polite live region for the
+ * success announcement. Lives outside the dialog so the message
+ * persists after the dialog closes. `aria-live="polite"` lets the
+ * screen reader finish the user's current utterance before announcing.
+ */
+function AppointmentListCancelLiveRegions() {
+  const { successMessage } = useCancel();
+  return (
+    <p
+      className={styles.politeLive}
+      aria-live="polite"
+      aria-atomic="true"
+      data-testid="cancel-polite-live"
+    >
+      {successMessage ?? ""}
+    </p>
   );
 }
 
@@ -372,6 +755,8 @@ type AppointmentListCompound = {
   Empty: typeof AppointmentListEmpty;
   Pagination: typeof AppointmentListPaginationInternal;
   Skeleton: typeof AppointmentListSkeleton;
+  CancelAction: typeof AppointmentListCancelAction;
+  CancelDialog: typeof AppointmentListCancelDialog;
 };
 
 /**
@@ -379,6 +764,10 @@ type AppointmentListCompound = {
  * `<AppointmentList.Card />` / `<AppointmentList.Empty />` etc. so the
  * page composes without prop-bag boolean sprawl
  * (`vercel-composition-patterns:architecture-avoid-boolean-props`).
+ *
+ * T-046 PR-B: `CancelAction` + `CancelDialog` are explicit variants,
+ * NOT gated by an `isCancellable` boolean on Card — eligibility lives
+ * inside `CancelAction` so the public Card API stays a single DTO.
  */
 export const AppointmentList: AppointmentListCompound = {
   Root: AppointmentListRoot,
@@ -390,4 +779,6 @@ export const AppointmentList: AppointmentListCompound = {
   Empty: AppointmentListEmpty,
   Pagination: AppointmentListPaginationInternal,
   Skeleton: AppointmentListSkeleton,
+  CancelAction: AppointmentListCancelAction,
+  CancelDialog: AppointmentListCancelDialog,
 };
