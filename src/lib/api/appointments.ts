@@ -31,7 +31,80 @@
  * 401 → caller imperatively `window.location.assign("/login?next=...")`.
  * 400 → caller shows the validation message from `issues[0]`.
  */
+import { z } from "zod";
+
 import { ApiError, type ApiErrorBody } from "@/lib/validators/service";
+
+/**
+ * Wire-format Zod schemas for the appointment boundary (T-045 UI-04).
+ *
+ * The `submitBooking` helper above returns `TurnoDTOJson` parsed by a
+ * single `await response.json() as TurnoDTOJson` cast — the server route
+ * already validates with Zod (`route.ts` `bodySchema.strict()`), so the
+ * client trusts the cast. For the upcoming-list surface we ADD a
+ * structural Zod schema so RSC→client props (which cross an unvalidated
+ * boundary inside the same request) can still reject snake_case leaks
+ * before they reach React.
+ *
+ * INV-08: `turnoDTOSchema.strict()` and `enrichedTurnoDTOSchema.strict()`
+ * reject any snake_case / Spanish DB key at parse time. The tests assert
+ * `safeParse({ fecha_hora_inicio: ... }).success === false`.
+ *
+ * INV-06: date fields use `z.string().datetime({ offset: true })` —
+ * accepts ISO 8601 with timezone offset (`Z` or `±HH:mm`). `Date`
+ * instances never appear on the wire.
+ */
+
+/**
+ * INV-02 UPPER_SNAKE status enum. The four legal appointment states —
+ * PENDIENTE, CONFIRMADO, RECHAZADO, CANCELADO. COMPLETADO is excluded
+ * explicitly per the spec (no `COMPLETADO` state in v1).
+ */
+export const appointmentStatusSchema = z.enum([
+  "PENDIENTE",
+  "CONFIRMADO",
+  "RECHAZADO",
+  "CANCELADO",
+]);
+
+/**
+ * Strict ISO 8601 with timezone. Matches the wire contract every server
+ * route emits (`route.ts` `toTurnoDTOJson` -> `.toISOString()`).
+ */
+const isoDateTime = z.string().datetime({ offset: true });
+
+/**
+ * Base wire-format schema for an existing `TurnoDTOJson`. Mirrors the
+ * `TurnoDTOJson` interface below so `enrichedTurnoDTOSchema` can extend
+ * it instead of duplicating field-by-field.
+ */
+export const turnoDTOSchema = z
+  .object({
+    id: z.string().uuid(),
+    customerId: z.string().uuid(),
+    vehicleId: z.string().uuid(),
+    serviceId: z.string().uuid(),
+    startDateTime: isoDateTime,
+    endDateTime: isoDateTime,
+    status: appointmentStatusSchema,
+    createdAt: isoDateTime,
+    updatedAt: isoDateTime,
+  })
+  .strict();
+
+/**
+ * Wire-format schema for the upcoming-appointments list (T-045). Adds
+ * `serviceName` (from `servicios.nombre`) and `vehicleLabel`
+ * (`"${marca} ${modelo} — ${patente}"`). Both are non-empty strings —
+ * the mapper substitutes the fallback constant when the LEFT JOIN
+ * produces NULL, so Zod never accepts `""`.
+ */
+export const enrichedTurnoDTOSchema = turnoDTOSchema
+  .extend({
+    serviceName: z.string().min(1),
+    vehicleLabel: z.string().min(1),
+  })
+  .strict();
 
 /**
  * Public JSON shape returned by `POST /api/appointments` (201).
@@ -71,6 +144,29 @@ export interface SubmitBookingInput {
   vehicleId: string;
   serviceId: string;
   startDateTime: string;
+}
+
+/**
+ * Wire-format shape returned by the upcoming-appointments list (T-045).
+ * Mirrors `EnrichedTurnoDTO` (`db/mappers/turno.ts`) with `Date`
+ * instances replaced by ISO 8601 strings — the wire format that crosses
+ * the RSC → client boundary.
+ *
+ * INV-08: snake_case / Spanish names (`cliente_id`, `vehiculo_id`,
+ * `servicio_id`, `fecha_hora_inicio`, `fecha_hora_fin`, `estado`,
+ * `created_at`, `updated_at`, `nombre`, `marca`, `modelo`, `patente`)
+ * never appear on the wire.
+ *
+ * INV-02: `status` is one of `PENDIENTE | CONFIRMADO | RECHAZADO |
+ * CANCELADO`. COMPLETADO never appears.
+ *
+ * `serviceName` is `servicios.nombre` (or the fallback constant when the
+ * LEFT JOIN returns NULL). `vehicleLabel` is `"${marca} ${modelo} —
+ * ${patente}"` (em dash, U+2014) or the fallback constant.
+ */
+export interface EnrichedTurnoDTOJson extends TurnoDTOJson {
+  serviceName: string;
+  vehicleLabel: string;
 }
 
 /** Predicate mirroring `lib/api/vehicles.ts:42-49` — confirms the server

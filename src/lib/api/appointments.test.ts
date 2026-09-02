@@ -14,9 +14,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/validators/service";
 import {
+  appointmentStatusSchema,
   buildBookingStartDateTime,
   buildLoginNext,
+  enrichedTurnoDTOSchema,
   submitBooking,
+  turnoDTOSchema,
+  type EnrichedTurnoDTOJson,
   type TurnoDTOJson,
 } from "@/lib/api/appointments";
 
@@ -404,5 +408,102 @@ describe("buildLoginNext — 401 redirect helper", () => {
           "/appointments/new?serviceId=550e8400-e29b-41d4-a716-446655440000&date=2026-09-10&slot=09%3A30&vehicleId=770e8400-e29b-41d4-a716-446655440099",
         ),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-045 wire-format schemas (GWT 5.2, 6.1 — INV-02/06/08)
+// ---------------------------------------------------------------------------
+
+function enrichedDtoJson(
+  overrides: Partial<Record<string, unknown>> = {},
+): EnrichedTurnoDTOJson {
+  return {
+    id: "33333333-3333-4333-8333-333333333333",
+    customerId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    vehicleId: "11111111-1111-4111-8111-111111111111",
+    serviceId: "22222222-2222-4222-8222-222222222222",
+    startDateTime: "2026-09-10T12:30:00.000Z",
+    endDateTime: "2026-09-10T13:00:00.000Z",
+    status: "PENDIENTE",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+    serviceName: "Cambio de aceite",
+    vehicleLabel: "Toyota Corolla — ABC123",
+    ...overrides,
+  };
+}
+
+describe("turnoDTOSchema — base wire format (INV-08 strict, GWT 5.2)", () => {
+  it("accepts a complete TurnoDTOJson", () => {
+    const parsed = turnoDTOSchema.safeParse(turnoDtoJson());
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects snake_case / Spanish keys (INV-08 .strict())", () => {
+    const tampered = { ...turnoDtoJson(), fecha_hora_inicio: "2026-09-10T12:30:00.000Z" };
+    const parsed = turnoDTOSchema.safeParse(tampered);
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects non-UUID id", () => {
+    const parsed = turnoDTOSchema.safeParse(turnoDtoJson({ id: "not-a-uuid" }));
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects ISO string without timezone (INV-06)", () => {
+    const parsed = turnoDTOSchema.safeParse(turnoDtoJson({ startDateTime: "2026-09-10T12:30:00" }));
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("appointmentStatusSchema — INV-02 UPPER_SNAKE enum", () => {
+  it.each(["PENDIENTE", "CONFIRMADO", "RECHAZADO", "CANCELADO"] as const)(
+    "accepts %s",
+    (s) => {
+      expect(appointmentStatusSchema.safeParse(s).success).toBe(true);
+    },
+  );
+
+  it("rejects COMPLETADO (no such state in v1)", () => {
+    expect(appointmentStatusSchema.safeParse("COMPLETADO").success).toBe(false);
+  });
+
+  it("rejects lowercase variants", () => {
+    expect(appointmentStatusSchema.safeParse("pendiente").success).toBe(false);
+  });
+});
+
+describe("enrichedTurnoDTOSchema — enriched wire format (GWT 6.1)", () => {
+  it("accepts a complete EnrichedTurnoDTOJson (camelCase + ISO + serviceName/vehicleLabel)", () => {
+    const parsed = enrichedTurnoDTOSchema.safeParse(enrichedDtoJson());
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.serviceName).toBe("Cambio de aceite");
+      expect(parsed.data.vehicleLabel).toBe("Toyota Corolla — ABC123");
+      expect(parsed.data.status).toBe("PENDIENTE");
+    }
+  });
+
+  it("rejects snake_case / Spanish keys at the wire (INV-08 .strict())", () => {
+    const tampered = {
+      ...enrichedDtoJson(),
+      cliente_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    };
+    expect(enrichedTurnoDTOSchema.safeParse(tampered).success).toBe(false);
+  });
+
+  it("rejects snake_case enrichment column names", () => {
+    const tampered = { ...enrichedDtoJson(), servicioNombre: "X", vehiculoMarca: "Y" };
+    expect(enrichedTurnoDTOSchema.safeParse(tampered).success).toBe(false);
+  });
+
+  it("rejects empty serviceName / vehicleLabel (fallback guarantees non-empty)", () => {
+    expect(enrichedTurnoDTOSchema.safeParse(enrichedDtoJson({ serviceName: "" })).success).toBe(false);
+    expect(enrichedTurnoDTOSchema.safeParse(enrichedDtoJson({ vehicleLabel: "" })).success).toBe(false);
+  });
+
+  it("rejects COMPLETADO status (INV-02)", () => {
+    expect(enrichedTurnoDTOSchema.safeParse(enrichedDtoJson({ status: "COMPLETADO" })).success).toBe(false);
   });
 });
