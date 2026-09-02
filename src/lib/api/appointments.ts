@@ -338,6 +338,41 @@ export async function cancelAppointment(id: string): Promise<TurnoDTOJson> {
 }
 
 /**
+ * Pure eligibility predicate for the `Cancelar` affordance (REQ-06,
+ * INV-02/06). Returns `true` only when the appointment is in a future,
+ * non-terminal state.
+ *
+ * Mirrors the server `assertOwnership → ensureFuture → canTransition`
+ * order at the UI layer, but is intentionally a subset:
+ *   - It does NOT check ownership (server truth — INV-03).
+ *   - It does NOT call the server; it derives from the DTO alone so the
+ *     list can render and hide buttons in a single pass without an
+ *     extra round-trip per row.
+ *
+ * INV-02: status is one of `PENDIENTE | CONFIRMADO | RECHAZADO |
+ * CANCELADO`. Only the first two are eligible (matches the server
+ * `canTransition` matrix for the cancel action — RN-07).
+ *
+ * INV-06: comparison uses `Date#getTime()` (UTC milliseconds) on the
+ * ISO 8601 string the server emits. Strict greater-than: a turn whose
+ * `startDateTime` equals `now` is NOT eligible — the server would 409
+ * it anyway ("El turno ya comenzó").
+ *
+ * @param appointment Only `status` + `startDateTime` are read; any
+ *   compatible object works (TurnoDTOJson, EnrichedTurnoDTOJson, …).
+ * @param now Override for tests; defaults to `new Date()`.
+ */
+export function canCancel(
+  appointment: { status: string; startDateTime: string },
+  now: Date = new Date(),
+): boolean {
+  if (appointment.status !== "PENDIENTE" && appointment.status !== "CONFIRMADO") {
+    return false;
+  }
+  return new Date(appointment.startDateTime).getTime() > now.getTime();
+}
+
+/**
  * Reconstruct the BA wall-clock ISO 8601 string the server expects.
  *
  * Why a helper (vs. inline concatenation in BookingForm.tsx):

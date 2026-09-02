@@ -18,6 +18,7 @@ import {
   buildBookingStartDateTime,
   buildLoginNext,
   cancelAppointment,
+  canCancel,
   enrichedTurnoDTOSchema,
   submitBooking,
   turnoDTOSchema,
@@ -790,5 +791,119 @@ describe("cancelAppointment — input validation (REQ-08, GWT 8.2)", () => {
       status: 0,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+describe("canCancel — eligibility (REQ-06, GWT 6.1-6.3, INV-02/06)", () => {
+  // Anchor: BA wall 09:00 = 12:00:00.000Z UTC (Law 26.474, no DST).
+  const startFuture = "2026-09-10T09:00:00-03:00"; // = 12:00Z UTC
+  const startPast = "2026-09-01T09:00:00-03:00"; // = 12:00Z, definitely past
+
+  it("PENDIENTE + future → true", () => {
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startFuture },
+        new Date("2026-09-10T11:00:00.000Z"),
+      ),
+    ).toBe(true);
+  });
+
+  it("CONFIRMADO + future → true", () => {
+    expect(
+      canCancel(
+        { status: "CONFIRMADO", startDateTime: startFuture },
+        new Date("2026-09-10T11:00:00.000Z"),
+      ),
+    ).toBe(true);
+  });
+
+  it("RECHAZADO → false (terminal — GWT 6.2)", () => {
+    expect(
+      canCancel(
+        { status: "RECHAZADO", startDateTime: startFuture },
+        new Date("2026-09-10T11:00:00.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("CANCELADO → false (terminal — GWT 6.2)", () => {
+    expect(
+      canCancel(
+        { status: "CANCELADO", startDateTime: startFuture },
+        new Date("2026-09-10T11:00:00.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("PENDIENTE + past → false (start < now — GWT 6.2)", () => {
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startPast },
+        new Date("2026-09-02T00:00:00.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("PENDIENTE + now === start → false (strict >, GWT 6.3)", () => {
+    // The server 409s the same condition with "El turno ya comenzó",
+    // so the client must also reject — no double-confirm allowed.
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startFuture },
+        new Date("2026-09-10T12:00:00.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("PENDIENTE + now > start → false", () => {
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startFuture },
+        new Date("2026-09-10T13:00:00.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("UTC border H-12 — start at 12:00Z; only 08:59 BA wall (11:59Z) is eligible; 09:00:00 and 09:00:01 BA wall are not (GWT 6.3)", () => {
+    // start = 09:00 BA wall = 12:00:00.000Z UTC
+    // 08:59 BA = 11:59:00.000Z UTC → eligible
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startFuture },
+        new Date("2026-09-10T11:59:00.000Z"),
+      ),
+    ).toBe(true);
+    // 09:00:00 BA = 12:00:00.000Z UTC → NOT eligible (strict >, server 409)
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startFuture },
+        new Date("2026-09-10T12:00:00.000Z"),
+      ),
+    ).toBe(false);
+    // 09:00:01 BA = 12:00:01.000Z UTC → NOT eligible (now > start)
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: startFuture },
+        new Date("2026-09-10T12:00:01.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  it("defaults `now` to new Date() — eligible when start is far in the future", () => {
+    // Sanity check that the default param works; no override passed.
+    const farFuture = "2099-12-31T09:00:00-03:00";
+    expect(canCancel({ status: "PENDIENTE", startDateTime: farFuture })).toBe(
+      true,
+    );
+  });
+
+  it("invalid startDateTime string → false (NaN > anything is false)", () => {
+    // Defensive — server never returns garbage, but a tampered prop or
+    // a misbehaving mapper should never produce a false positive.
+    expect(
+      canCancel(
+        { status: "PENDIENTE", startDateTime: "not-a-date" },
+        new Date("2026-09-10T11:00:00.000Z"),
+      ),
+    ).toBe(false);
   });
 });
