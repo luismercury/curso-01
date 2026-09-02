@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, gt, gte, lt, inArray, sql } from "drizzle-orm";
 
 import type { Db, DbOrTx } from "@/db";
-import { servicios, turnos } from "@/db/schema";
-import type { TurnoDTO } from "@/db/mappers/turno";
-import { toTurnoDTO } from "@/db/mappers/turno";
+import { servicios, turnos, vehiculos } from "@/db/schema";
+import type { EnrichedTurnoDTO, TurnoDTO } from "@/db/mappers/turno";
+import { toEnrichedDTO, toTurnoDTO } from "@/db/mappers/turno";
 import { turnoInputSchema } from "@/db/validators/turno";
 import { DomainError, hasPgCode, PG_CODES } from "@/lib/errors";
 import { workshopConfig } from "@/config/workshopConfig";
@@ -429,4 +429,119 @@ export async function findActiveTurnosByDateRange(
     end: row.fechaHoraFin,
     status: row.estado,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// findTurnosPaginatedEnriched ??? T-045 UI-04 single LEFT JOIN enrichment
+// ---------------------------------------------------------------------------
+
+export interface FindTurnosPaginatedEnrichedQuery {
+  customerId?: string;
+  page?: number;
+  limit?: number;
+  now?: Date;
+}
+
+export interface FindTurnosPaginatedEnrichedResult {
+  data: EnrichedTurnoDTO[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+/**
+ * Single-query paginated read for the upcoming-appointments screen
+ * (T-045 UI-04). Produces `EnrichedTurnoDTO[]` via ONE LEFT JOIN against
+ * `servicios` + `vehiculos` and ONE `count(*)` over `turnos` ??? never N+1.
+ *
+ * Why LEFT JOIN (not Map+inArray): the upcoming list is small
+ * (paginated to ???100 rows) and the joined columns are indexed via the
+ * existing FK indexes (`idx_turno_servicio_id`, `idx_turno_vehiculo_id`).
+ * A bulk Map strategy would issue 3 queries (turnos + servicios IN (???)
+ * + vehiculos IN (???)) ??? not worth the savings when the LEFT JOIN keeps
+ * the count and the data rows in lock-step.
+ *
+ * RN-04 defaults: PENDIENTE | CONFIRMADO with `startDateTime > now UTC`.
+ * No `includeCancelled` / `includeRejected` flags ??? the upcoming screen
+ * never surfaces CANCELADO / RECHAZADO rows by design (spec REQ-03).
+ *
+ * INV-02: status filter is a hard-coded UPPER_SNAKE tuple ??? no caller
+ * supplied string can leak a bogus value.
+ *
+ * INV-08: `toEnrichedDTO` renames snake_case columns to camelCase; the
+ * mapper is the single source of truth. `?page` / `?limit` clamp at the
+ * validator layer (`parseAppointmentsQuery`), not here ??? the repo
+ * receives already-clamped integers.
+ */
+export async function findTurnosPaginatedEnriched(
+  db: DbOrTx,
+  query: FindTurnosPaginatedEnrichedQuery = {},
+): Promise<FindTurnosPaginatedEnrichedResult> {
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 20;
+  const now = query.now ?? new Date();
+
+  if (!Number.isInteger(page) || page < 1) {
+    throw new ValidationError("page must be >= 1");
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new ValidationError("limit must be between 1 and 100");
+  }
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+    throw new ValidationError("invalid now Date");
+  }
+
+  const conditions = [
+    inArray(turnos.estado, ["PENDIENTE", "CONFIRMADO"]),
+    gt(turnos.fechaHoraInicio, now),
+  ];
+  if (query.customerId !== undefined) {
+    conditions.push(eq(turnos.clienteId, query.customerId));
+  }
+  const whereClause = and(...conditions);
+
+  // Count query ??? same predicate, NO joins (cheaper and avoids
+  // double-counting if a join ever multiplies rows).
+  const totalRows = await db
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .select({ count: sql<number>`count(*)`.mapWith(Number) } as any)
+    .from(turnos)
+    .where(whereClause);
+  const total = Number((totalRows[0] as unknown as { count: number })?.count ?? 0);
+  const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+  const offsetValue = (page - 1) * limit;
+
+  // Data query ??? single LEFT JOIN servicios + LEFT JOIN vehiculos.
+  // Returns one row per turno with optional enrichment columns.
+  const rows = await db
+    .select({
+      id: turnos.id,
+      clienteId: turnos.clienteId,
+      vehiculoId: turnos.vehiculoId,
+      servicioId: turnos.servicioId,
+      fechaHoraInicio: turnos.fechaHoraInicio,
+      fechaHoraFin: turnos.fechaHoraFin,
+      estado: turnos.estado,
+      createdAt: turnos.createdAt,
+      updatedAt: turnos.updatedAt,
+      servicioNombre: servicios.nombre,
+      vehiculoMarca: vehiculos.marca,
+      vehiculoModelo: vehiculos.modelo,
+      vehiculoPatente: vehiculos.patente,
+    })
+    .from(turnos)
+    .leftJoin(servicios, eq(servicios.id, turnos.servicioId))
+    .leftJoin(vehiculos, eq(vehiculos.id, turnos.vehiculoId))
+    .where(whereClause)
+    .orderBy(asc(turnos.fechaHoraInicio))
+    .limit(limit)
+    .offset(offsetValue);
+
+  return {
+    data: rows.map(toEnrichedDTO),
+    pagination: { page, limit, total, totalPages },
+  };
 }
