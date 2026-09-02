@@ -33,3 +33,19 @@
   color: var(--color-fg-muted);
   text-align: center;
 }
+
+/* Skeleton — placeholder shown by AppointmentList.Skeleton when the
+ * page wants to defer the list to a separate Suspense boundary.
+ * Card / Badge / Pagination tokens land in PR2b/PR2c. */
+.skeleton {
+  margin-top: var(--space-3);
+  height: 4rem;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--color-bg) 0%, var(--color-border) 50%, var(--color-bg) 100%);
+  background-size: 200% 100%;
+  animation: appointments-skeleton-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes appointments-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
