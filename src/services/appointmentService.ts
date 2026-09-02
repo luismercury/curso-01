@@ -14,9 +14,15 @@ import {
   countActiveOverlappingForUpdate,
   findTurnoById,
   findTurnosPaginated,
+  findTurnosPaginatedEnriched,
   updateTurnoStatus,
 } from "@/db/repositories/turnos";
-import type { FindTurnosPaginatedQuery, FindTurnosPaginatedResult } from "@/db/repositories/turnos";
+import type {
+  FindTurnosPaginatedEnrichedQuery,
+  FindTurnosPaginatedEnrichedResult,
+  FindTurnosPaginatedQuery,
+  FindTurnosPaginatedResult,
+} from "@/db/repositories/turnos";
 import { findVehiculoById } from "@/db/repositories/vehiculos";
 import { findServicioById } from "@/db/repositories/servicios";
 import { canTransition } from "@/domain/appointmentStateMachine";
@@ -273,4 +279,42 @@ export async function listAppointments(
   }
 
   return findTurnosPaginated(deps.db, effectiveQuery);
+}
+
+/**
+ * Upcoming-appointments enriched list (T-045 UI-04).
+ *
+ * INV-03: `customerId` is INJECTED from `authUser.id` when the caller is
+ * a CLIENTE — the caller-supplied value is dropped so a tampered
+ * `?customerId=` query can never escalate to another user's appointments
+ * (IDOR defense). ADMINISTRADOR keeps whatever `customerId` was supplied
+ * (defaults to "all customers") — no ownership gate at the service
+ * layer; admin tooling uses the same code path.
+ *
+ * `now` is forwarded from `deps.now` (DI clock) so tests can pin a
+ * deterministic instant and the production path falls back to `new Date()`.
+ *
+ * `page` / `limit` are forwarded as-is. The page layer is expected to
+ * clamp via `parseAppointmentsQuery` before calling this — the repo
+ * still validates as a defense in depth.
+ */
+export async function listAppointmentsEnriched(
+  deps: AppointmentServiceDeps,
+  query: FindTurnosPaginatedEnrichedQuery,
+  authUser: AuthUser,
+): Promise<FindTurnosPaginatedEnrichedResult> {
+  const effectiveQuery: FindTurnosPaginatedEnrichedQuery = { ...query };
+
+  if (authUser.role === "CLIENTE") {
+    // INV-03: customerId injection — caller cannot override the session
+    // user. ADMINISTRADOR may pass an explicit `customerId` to filter to
+    // a single customer from the admin pending query.
+    effectiveQuery.customerId = authUser.id;
+  }
+
+  if (!effectiveQuery.now) {
+    effectiveQuery.now = getNow(deps);
+  }
+
+  return findTurnosPaginatedEnriched(deps.db, effectiveQuery);
 }
