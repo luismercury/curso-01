@@ -17,6 +17,7 @@ import {
   appointmentStatusSchema,
   buildBookingStartDateTime,
   buildLoginNext,
+  cancelAppointment,
   enrichedTurnoDTOSchema,
   submitBooking,
   turnoDTOSchema,
@@ -505,5 +506,289 @@ describe("enrichedTurnoDTOSchema — enriched wire format (GWT 6.1)", () => {
 
   it("rejects COMPLETADO status (INV-02)", () => {
     expect(enrichedTurnoDTOSchema.safeParse(enrichedDtoJson({ status: "COMPLETADO" })).success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-046 cancelAppointment helper (REQ-08, REQ-09, INV-02/03/06/08)
+// ---------------------------------------------------------------------------
+
+const CANCEL_ID = "33333333-3333-4333-8333-333333333333";
+
+function cancelDtoJson(overrides: Partial<Record<string, unknown>> = {}) {
+  return turnoDtoJson({
+    status: "CANCELADO",
+    updatedAt: "2026-09-02T00:00:00.000Z",
+    ...overrides,
+  });
+}
+
+describe("cancelAppointment — happy path (REQ-08, GWT 8.1)", () => {
+  beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("PATCHes /api/appointments/{id}/cancel with credentials+no-store, no body", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, cancelDtoJson()));
+    await cancelAppointment(CANCEL_ID);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`/api/appointments/${CANCEL_ID}/cancel`);
+    expect(init?.method).toBe("PATCH");
+    expect(init?.credentials).toBe("include");
+    expect(init?.cache).toBe("no-store");
+    // No body on the wire — the URL identifies the target.
+    expect(init?.body).toBeUndefined();
+  });
+
+  it("returns CANCELADO TurnoDTOJson on 200 — camelCase + ISO, no Spanish leak (INV-08, GWT 8.3)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const expected = cancelDtoJson();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, expected));
+    const dto = await cancelAppointment(CANCEL_ID);
+    expect(dto).toEqual(expected);
+    expect(dto.status).toBe("CANCELADO");
+    // INV-08 — snake_case / Spanish keys never appear on the wire.
+    expect(dto).not.toHaveProperty("cliente_id");
+    expect(dto).not.toHaveProperty("vehiculo_id");
+    expect(dto).not.toHaveProperty("servicio_id");
+    expect(dto).not.toHaveProperty("fecha_hora_inicio");
+    expect(dto).not.toHaveProperty("fecha_hora_fin");
+    expect(dto).not.toHaveProperty("estado");
+    expect(dto).not.toHaveProperty("created_at");
+    expect(dto).not.toHaveProperty("updated_at");
+    // Date fields are ISO strings with timezone (INV-06).
+    expect(dto.startDateTime).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/,
+    );
+  });
+});
+
+describe("cancelAppointment — ApiError mapping on non-2xx (REQ-09, GWT 9.1-9.5)", () => {
+  beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("401 UNAUTHORIZED — expired JWT during PATCH (GWT 9.2)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        error: { code: "UNAUTHORIZED", message: "Missing token" },
+      }),
+    );
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "UNAUTHORIZED",
+      status: 401,
+    });
+  });
+
+  it("403 FORBIDDEN — non-owner attempting cancel (GWT 9.3)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, {
+        error: { code: "FORBIDDEN", message: "Not your appointment" },
+      }),
+    );
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "FORBIDDEN",
+      status: 403,
+    });
+  });
+
+  it("404 APPOINTMENT_NOT_FOUND — unknown id (GWT 9.4)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(404, {
+        error: {
+          code: "APPOINTMENT_NOT_FOUND",
+          message: "Appointment not found",
+        },
+      }),
+    );
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "APPOINTMENT_NOT_FOUND",
+      status: 404,
+    });
+  });
+
+  it("409 INVALID_APPOINTMENT_STATE 'El turno ya comenzó' — border copy preserved verbatim (GWT 9.5)", async () => {
+    // Server returns EXACT copy when now >= startDateTime. The client maps
+    // by code but trusts the server's message at the border so we render
+    // the same text the customer would see in Spanish regardless of locale.
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        error: {
+          code: "INVALID_APPOINTMENT_STATE",
+          message: "El turno ya comenzó",
+        },
+      }),
+    );
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "INVALID_APPOINTMENT_STATE",
+      status: 409,
+      message: "El turno ya comenzó",
+    });
+  });
+
+  it("409 INVALID_APPOINTMENT_STATE generic — 'El turno ya no puede cancelarse.' (GWT 9.4)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        error: {
+          code: "INVALID_APPOINTMENT_STATE",
+          message: "El turno ya no puede cancelarse.",
+        },
+      }),
+    );
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "INVALID_APPOINTMENT_STATE",
+      status: 409,
+      message: "El turno ya no puede cancelarse.",
+    });
+  });
+
+  it("code comes from body.error.code (NOT status) — 409 with code APPOINTMENT_NOT_FOUND carries APPOINTMENT_NOT_FOUND, not CONFLICT", async () => {
+    // Defensive test against the inverse regression: a server that
+    // returns a non-standard code on 409 must reach the caller verbatim.
+    // The helper MUST NOT collapse to statusToFallbackCode when an envelope
+    // is present.
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        error: {
+          code: "APPOINTMENT_NOT_FOUND",
+          message: "Conflict: also missing",
+        },
+      }),
+    );
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect((captured as ApiError).code).toBe("APPOINTMENT_NOT_FOUND");
+    expect((captured as ApiError).status).toBe(409);
+  });
+
+  it("409 with no ErrorBody — falls back to CONFLICT (envelope drift)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(new Response("busy", { status: 409 }));
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({ code: "CONFLICT", status: 409 });
+  });
+
+  it("5xx with no ErrorBody — falls back to UNKNOWN_ERROR", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({ code: "UNKNOWN_ERROR", status: 500 });
+  });
+});
+
+describe("cancelAppointment — network failure", () => {
+  beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("fetch reject → ApiError(code:'NETWORK_ERROR', status:0)", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockRejectedValueOnce(new Error("econnreset"));
+    let captured: unknown;
+    try {
+      await cancelAppointment(CANCEL_ID);
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "NETWORK_ERROR",
+      status: 0,
+      message: "econnreset",
+    });
+  });
+});
+
+describe("cancelAppointment — input validation (REQ-08, GWT 8.2)", () => {
+  beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("non-UUID id → ApiError(code:'VALIDATION_ERROR', status:0) without calling fetch", async () => {
+    const fetchMock = vi.mocked(fetch);
+    let captured: unknown;
+    try {
+      await cancelAppointment("not-a-uuid");
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "VALIDATION_ERROR",
+      status: 0,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("empty id → ApiError(VALIDATION_ERROR) without calling fetch", async () => {
+    const fetchMock = vi.mocked(fetch);
+    let captured: unknown;
+    try {
+      await cancelAppointment("");
+    } catch (e) {
+      captured = e;
+    }
+    expect(captured).toBeInstanceOf(ApiError);
+    expect(captured).toMatchObject({
+      code: "VALIDATION_ERROR",
+      status: 0,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
