@@ -160,3 +160,153 @@
   color: var(--color-fg-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------------------------------------------------------------------------
+ * T-046 Cancel affordance (REQ-06/07/08/09, WCAG 2.4.7 + 2.5.8)
+ *
+ * `.cancelButton` is the shared 44×44 + focus-visible + disabled contract
+ * for every action button in the cancel flow (card trigger, dialog
+ * `Confirmar`, dialog `Volver`). Reused via `composes:` so the visual
+ * token lives in exactly one place — no drift between the trigger on
+ * the card and the confirm button inside the dialog.
+ *
+ * `.dialog` and its parts style the native `<dialog>` element. We do
+ * NOT reach for a third-party modal — `showModal()` + `::backdrop`
+ * already provide focus trapping, ESC-to-close, and inertness. We only
+ * style; we never implement the focus trap ourselves.
+ *
+ * Live regions (`.politeLive`, `.alertError`) are visually empty until
+ * populated — they exist so screen readers can announce the success /
+ * error message after a mutation without moving focus.
+ *
+ * `.headingFocusTarget` adds scroll-margin so a focus shift to the
+ * page `<h1>` (REQ-09 success path) is never obscured by a future
+ * sticky header. The page does not have a sticky bar today, but the
+ * helper is cheap and prevents a regression.
+ * --------------------------------------------------------------------------- */
+
+.cancelButton {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cancelButton:hover:not(:disabled) {
+  border-color: var(--color-fg-strong);
+}
+
+.cancelButton:focus-visible {
+  outline: 2px solid #005fcc;
+  outline-offset: 2px;
+}
+
+.cancelButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Dialog trigger variant — same contract but ghost styling so the card
+ * stays visually quiet until the user actively wants to cancel. */
+.cancelTrigger {
+  composes: cancelButton;
+  font-size: 0.875rem;
+}
+
+.dialog {
+  /* Reset native dialog defaults so the visual contract matches the
+   * page rather than the browser's UA stylesheet. */
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  max-width: min(32rem, calc(100vw - var(--space-4)));
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+
+.dialogInner {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.dialogMessage {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--color-fg-muted);
+  line-height: 1.4;
+}
+
+.dialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.dialogConfirm {
+  composes: cancelButton;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border-color: var(--color-fg-strong);
+}
+
+.dialogCancel {
+  composes: cancelButton;
+  font-size: 0.9375rem;
+}
+
+/* Live regions — visually empty by default; populated on cancel success
+ * (polite) or error (assertive). `aria-live` does the announcement;
+ * the rules here only reserve a stable layout slot so a screen reader
+ * user's view does not jump when the message lands. */
+.politeLive,
+.alertError {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Heading focus target — keeps the page `<h1>` clear of any future
+ * sticky/fixed bar when focus lands on it after a successful cancel
+ * (REQ-09 success path). Cheap insurance, no current visual effect. */
+.headingFocusTarget {
+  scroll-margin-top: 5rem;
+}
+
+/* Motion respects user preference (WCAG 2.3.3 — Animation from
+ * Interactions). The dialog itself fades in via the UA's default
+ * open/close transitions; we trim those to ~0 when the user has
+ * asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .dialog {
+    animation: none;
+  }
+}
