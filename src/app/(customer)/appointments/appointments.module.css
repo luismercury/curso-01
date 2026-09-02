@@ -36,7 +36,7 @@
 
 /* Skeleton — placeholder shown by AppointmentList.Skeleton when the
  * page wants to defer the list to a separate Suspense boundary.
- * Card / Badge / Pagination tokens land in PR2b/PR2c. */
+ * Pagination tokens land in PR2c. */
 .skeleton {
   margin-top: var(--space-3);
   height: 4rem;
@@ -48,4 +48,74 @@
 @keyframes appointments-skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+/* Badge — explicit composition variants (PENDIENTE / CONFIRMADO). The
+ * base class is never used on its own; consumers compose onto it via
+ * `composes:` so the visual contract for each variant is a single rule. */
+.badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.badgePending {
+  composes: badge;
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+.badgeConfirmed {
+  composes: badge;
+  background: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
+/* Card — one row inside the <ol>. Grid lays out the date column, the
+ * service+vehicle column, and the badge column. Matches the visual
+ * weight of .banner / .vehicleCard. */
+.card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+.cardDateRow {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 6rem;
+}
+.cardDate {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+}
+.cardTime {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-muted);
+}
+.cardService {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--color-fg);
+  overflow-wrap: anywhere;
+}
+.cardVehicle {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-fg-muted);
+  overflow-wrap: anywhere;
 }

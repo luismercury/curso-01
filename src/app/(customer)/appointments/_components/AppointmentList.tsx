@@ -173,21 +173,122 @@ function AppointmentListSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// PR2a placeholders. The compound namespace is declared up-front so the
-// typecheck + tree-shaking shape stay stable as the rest of the compound
-// lands across the chain:
+// PR2b — Card + Badge.{PendingBadge,ConfirmedBadge}. Lands in this slice.
 //
-//   PR2a (this): Root + Empty + Skeleton                       ← landed
-//   PR2b        : Card + Badge.{PendingBadge,ConfirmedBadge}   ← next slice
-//   PR2c        : Pagination                                    ← last slice
-//
-// Stubs return `null` so a page that composes `<AppointmentList.Card>`
-// before PR2b lands renders an empty list instead of crashing — the page
-// test (PR2d) asserts on the complete compound, not these stubs.
+// PR2c adds Pagination (still a no-op stub in this slice).
 // ---------------------------------------------------------------------------
-const AppointmentListCard = (_: { appointment: EnrichedTurnoDTOJson }): null => null;
-const AppointmentListPendingBadge = (): null => null;
-const AppointmentListConfirmedBadge = (): null => null;
+
+/**
+ * `PendingBadge` — amber pill for `PENDIENTE` turns. Exposed as a
+ * named subcomponent (no boolean prop on a generic Badge) so the
+ * variant visual contract is a single rule in CSS Modules.
+ */
+function AppointmentListPendingBadge() {
+  return (
+    <span
+      className={styles.badgePending}
+      role="status"
+      aria-label="Estado: PENDIENTE"
+      data-testid="appointment-status"
+      data-status="PENDIENTE"
+    >
+      PENDIENTE
+    </span>
+  );
+}
+
+/**
+ * `ConfirmedBadge` — green pill for `CONFIRMADO` turns. Mirrors the
+ * `PendingBadge` contract.
+ */
+function AppointmentListConfirmedBadge() {
+  return (
+    <span
+      className={styles.badgeConfirmed}
+      role="status"
+      aria-label="Estado: CONFIRMADO"
+      data-testid="appointment-status"
+      data-status="CONFIRMADO"
+    >
+      CONFIRMADO
+    </span>
+  );
+}
+
+/**
+ * Status dispatcher consumed internally by `AppointmentListCard`. Maps
+ * `PENDIENTE | CONFIRMADO` to the matching variant. Anything else
+ * renders nothing — REQ-03 enforces PENDIENTE | CONFIRMADO at the
+ * repo layer (RN-04), so a stray `CANCELADO` / `RECHAZADO` never
+ * reaches the client list.
+ */
+function AppointmentListStatusBadge({ status }: { status: string }) {
+  if (status === "CONFIRMADO") return <AppointmentListConfirmedBadge />;
+  if (status === "PENDIENTE") return <AppointmentListPendingBadge />;
+  return null;
+}
+
+interface AppointmentListCardProps {
+  appointment: EnrichedTurnoDTOJson;
+}
+
+/**
+ * `Card` — one <li> row. Renders Fecha, Horario (`Intl` with the
+ * `timezone` from context), Servicio, Vehículo, and the matching
+ * badge variant. `suppressHydrationWarning` on the <time> elements
+ * because env-Intl-vs-server-Intl can disagree on a one-hour boundary
+ * in rare DST edge cases — INV-06 makes BA DST-free so the actual
+ * values match; the hint just silences the React 19 warning.
+ *
+ * `data-service-name` + `data-vehicle-label` are exposed as data
+ * attributes (not just rendered text) so test selectors + downstream
+ * scrapers can read the values without re-parsing visible copy.
+ */
+function AppointmentListCard({ appointment }: AppointmentListCardProps) {
+  const { dateFormatter, timeFormatter } = useAppointment();
+  const start = new Date(appointment.startDateTime);
+  const end = new Date(appointment.endDateTime);
+  const startText = dateFormatter.format(start);
+  const timeText = `${timeFormatter.format(start)}–${timeFormatter.format(end)}`;
+  return (
+    <li
+      role="listitem"
+      className={styles.card}
+      data-testid="appointment-item"
+      data-service-name={appointment.serviceName}
+      data-vehicle-label={appointment.vehicleLabel}
+      data-appointment-id={appointment.id}
+    >
+      <div className={styles.cardDateRow}>
+        <time
+          dateTime={appointment.startDateTime}
+          className={styles.cardDate}
+          data-testid="card-date"
+          suppressHydrationWarning
+        >
+          {startText}
+        </time>
+        <time
+          dateTime={appointment.startDateTime}
+          className={styles.cardTime}
+          data-testid="card-time"
+          suppressHydrationWarning
+        >
+          {timeText}
+        </time>
+      </div>
+      <div className={styles.cardService} data-testid="card-service">
+        {appointment.serviceName}
+      </div>
+      <div className={styles.cardVehicle} data-testid="card-vehicle">
+        {appointment.vehicleLabel}
+      </div>
+      <AppointmentListStatusBadge status={appointment.status} />
+    </li>
+  );
+}
+
+// PR2c lands Pagination. Stub returns null in this slice.
 const AppointmentListPagination = (): null => null;
 
 type AppointmentListCompound = {
