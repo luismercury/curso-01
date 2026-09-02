@@ -252,6 +252,92 @@ export async function submitBooking(
 }
 
 /**
+ * PATCH a cancellation to `/api/appointments/{id}/cancel` (T-046 UI-04).
+ *
+ * Why PATCH-without-body (per design D01, REQ-08): the route is
+ * idempotent — the resource transitions `PENDIENTE|CONFIRMADO → CANCELADO`
+ * and only the URL identifies the target. No body, no auth header (the
+ * cookie is sent via `credentials:"include"`). The server enforces
+ * `assertOwnership` then `ensureFuture` then `canTransition` (RN-07), so
+ * client gating is affordance-only.
+ *
+ * INV-03: cookie auth. The client never sends `customerId` — server-side
+ * `requireAuth()` derives it from the session cookie.
+ *
+ * INV-02: on success the server returns `status:"CANCELADO"` (UPPER_SNAKE,
+ * no `COMPLETADO`).
+ *
+ * INV-08: response is parsed as `TurnoDTO` JSON (camelCase + ISO).
+ *
+ * Non-2xx behavior — switches on `body.error.code` (NOT status), so the
+ * caller can map by semantic code rather than HTTP status:
+ *   - `UNAUTHORIZED`              → caller redirects to `/login?next=…`
+ *   - `FORBIDDEN`                 → caller renders "No tienes permiso…"
+ *   - `APPOINTMENT_NOT_FOUND`     → caller renders "El turno no existe."
+ *   - `INVALID_APPOINTMENT_STATE` with `now >= start` → EXACT copy
+ *     `"El turno ya comenzó"` (server sets the message at the border)
+ *   - `INVALID_APPOINTMENT_STATE` other → `"El turno ya no puede cancelarse."`
+ *   - `NETWORK_ERROR` (fetch rejects) → caller shows offline message
+ *
+ * The route never uses HTTP 400 here (the server validates `id` as UUID
+ * with `z.string().uuid()` and returns 400 only on malformed input —
+ * impossible from this helper because we `safeParse` the id first).
+ */
+export async function cancelAppointment(id: string): Promise<TurnoDTOJson> {
+  // Client-side UUID guard (REQ-08) — catches tampered URLs before the
+  // request leaves the browser. `status:0` marks a client-side failure so
+  // the caller can distinguish it from server 4xx/5xx.
+  const idParsed = z.uuid().safeParse(id);
+  if (!idParsed.success) {
+    throw new ApiError({
+      code: "VALIDATION_ERROR",
+      message: "Invalid appointment ID format",
+      status: 0,
+    });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`/api/appointments/${id}/cancel`, {
+      method: "PATCH",
+      credentials: "include",
+      cache: "no-store",
+    });
+  } catch (e) {
+    throw new ApiError({
+      code: "NETWORK_ERROR",
+      message: e instanceof Error ? e.message : "Network error",
+      status: 0,
+    });
+  }
+
+  if (!response.ok) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // fall through with body = null
+    }
+    if (isErrorBody(body)) {
+      throw new ApiError({
+        code: body.error.code,
+        message: body.error.message,
+        status: response.status,
+        issues: body.error.issues,
+      });
+    }
+    throw new ApiError({
+      code: statusToFallbackCode(response.status),
+      message: response.statusText || "Request failed",
+      status: response.status,
+    });
+  }
+
+  const data = (await response.json()) as TurnoDTOJson;
+  return data;
+}
+
+/**
  * Reconstruct the BA wall-clock ISO 8601 string the server expects.
  *
  * Why a helper (vs. inline concatenation in BookingForm.tsx):
