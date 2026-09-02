@@ -119,3 +119,44 @@
   color: var(--color-fg-muted);
   overflow-wrap: anywhere;
 }
+
+/* Pagination — nav element with prev / label / next. Buttons follow
+ * the .input / .vehicleCard hover + focus ring contract so the
+ * controls feel native to the page. */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.paginationButton {
+  appearance: none;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+  cursor: pointer;
+  min-width: 5rem;
+}
+.paginationButton:hover:not(:disabled) {
+  border-color: var(--color-fg-strong);
+}
+.paginationButton:focus {
+  outline: 2px solid var(--color-fg);
+  outline-offset: 1px;
+}
+.paginationButton:focus:not(:focus-visible) {
+  outline: none;
+}
+.paginationButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.paginationLabel {
+  font-size: 0.875rem;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}

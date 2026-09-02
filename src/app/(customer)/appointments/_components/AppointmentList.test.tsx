@@ -1,13 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Component, type ReactNode } from "react";
 
+// PR2c brings the shared `push` + `mockSearch` mocks — they are used by
+// Pagination tests below to assert on the URL router.push calls. The
+// vi.mock factory hoists `push` and `mockSearch` references so vi.fn
+// can be set up before the mock factory closes over them.
+const push = vi.fn();
+let mockSearch = new URLSearchParams();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => mockSearch,
   usePathname: () => "/appointments",
 }));
 
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { AppointmentList, useAppointment } from "./AppointmentList";
 import type { EnrichedTurnoDTOJson } from "@/lib/api/appointments";
@@ -37,7 +45,10 @@ const pagination = (o: Record<string, number> = {}) => ({
   ...o,
 });
 
-beforeEach(() => {});
+beforeEach(() => {
+  push.mockReset();
+  mockSearch = new URLSearchParams();
+});
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -293,5 +304,79 @@ describe("AppointmentList — Explicit variant components", () => {
       </AppointmentList.Root>,
     );
     expect(screen.getByTestId("appointment-status").getAttribute("aria-label")).toBe("Estado: CONFIRMADO");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR2c — Pagination tests.
+//
+// Lands in this slice: ?page=2 label, Anterior/Siguiente disabled states,
+// router.push URL construction (with sibling preservation), and the
+// totalPages ≤ 1 render-nothing contract. The `push` + `mockSearch`
+// mocks above are referenced here.
+// ---------------------------------------------------------------------------
+
+describe("AppointmentList — Pagination (R4.1)", () => {
+  it("?page=2 → 'Página 2 de 2' + Anterior enabled + Siguiente disabled", () => {
+    render(
+      <TestRoot
+        appointments={[appointment()]}
+        pagination={pagination({ page: 2, total: 25, totalPages: 2 })}
+      />,
+    );
+    expect(screen.getByTestId("pagination-label").textContent).toMatch(/Página 2 de 2/);
+    expect(screen.getByTestId("pagination-prev").hasAttribute("disabled")).toBe(false);
+    expect(screen.getByTestId("pagination-next").hasAttribute("disabled")).toBe(true);
+  });
+
+  it("?page=1 → Anterior disabled + Siguiente enabled", () => {
+    render(
+      <TestRoot
+        appointments={[appointment()]}
+        pagination={pagination({ page: 1, total: 25, totalPages: 2 })}
+      />,
+    );
+    expect(screen.getByTestId("pagination-prev").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("pagination-next").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("clicking Siguiente pushes ?page=2 preserving limit + scroll:false", async () => {
+    mockSearch = new URLSearchParams("page=1&limit=20");
+    render(
+      <TestRoot
+        appointments={[appointment()]}
+        pagination={pagination({ page: 1, total: 25, totalPages: 2 })}
+      />,
+    );
+    await userEvent.setup().click(screen.getByTestId("pagination-next"));
+    expect(push).toHaveBeenCalledWith("/appointments?page=2&limit=20", { scroll: false });
+  });
+
+  it("clicking Anterior pushes ?page=1 stripping the ?page= sibling", async () => {
+    mockSearch = new URLSearchParams("page=2&limit=20&confirmed=keep-me");
+    render(
+      <TestRoot
+        appointments={[appointment()]}
+        pagination={pagination({ page: 2, total: 25, totalPages: 2 })}
+      />,
+    );
+    await userEvent.setup().click(screen.getByTestId("pagination-prev"));
+    // Anterior at page 2 → page 1, which strips ?page= and preserves siblings
+    const [url, options] = push.mock.calls[0] ?? [];
+    expect(url).toMatch(/^\/appointments\?/);
+    expect(String(url)).not.toContain("page=");
+    expect(String(url)).toContain("limit=20");
+    expect(String(url)).toContain("confirmed=keep-me");
+    expect(options).toEqual({ scroll: false });
+  });
+
+  it("single page (totalPages=1) → Pagination renders nothing", () => {
+    render(
+      <TestRoot
+        appointments={[appointment()]}
+        pagination={pagination({ total: 1, totalPages: 1 })}
+      />,
+    );
+    expect(screen.queryByTestId("appointments-pagination")).toBeNull();
   });
 });

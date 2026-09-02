@@ -48,7 +48,8 @@
  * throwing inside a subcomponent used outside Root produces a loud
  * render error instead of a silently empty UI.
  */
-import { createContext, use, useMemo } from "react";
+import { createContext, use, useCallback, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { EnrichedTurnoDTOJson } from "@/lib/api/appointments";
 
 import styles from "../appointments.module.css";
@@ -288,8 +289,78 @@ function AppointmentListCard({ appointment }: AppointmentListCardProps) {
   );
 }
 
-// PR2c lands Pagination. Stub returns null in this slice.
-const AppointmentListPagination = (): null => null;
+// ---------------------------------------------------------------------------
+// PR2c — Pagination. Lands in this slice.
+//
+// Composition pattern: Pagination reads `pagination` from the Root context
+// and pushes URL updates via `next/navigation`. It renders nothing when
+// the result fits on a single page (totalPages ≤ 1) so the page never
+// shows "Página 1 de 1".
+// ---------------------------------------------------------------------------
+
+/**
+ * `Pagination` — URL-driven `?page&limit` controls. Clicking prev/next
+ * pushes the new `?page` value while preserving every other URL sibling
+ * (`serviceId`, `vehicleId`, `confirmed`, etc.) — same precedent as
+ * DateSelector + BookingConfirmation.Dismiss.
+ */
+function AppointmentListPaginationInternal() {
+  const { pagination } = useAppointment();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const goTo = useCallback(
+    (targetPage: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (targetPage <= 1) {
+        params.delete("page");
+      } else {
+        params.set("page", String(targetPage));
+      }
+      const query = params.toString();
+      router.push(query.length > 0 ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const { page, totalPages } = pagination;
+  if (totalPages <= 1) return null;
+  const hasPrev = page > 1;
+  const hasNext = page < totalPages;
+
+  return (
+    <nav
+      aria-label="Paginación"
+      className={styles.pagination}
+      data-testid="appointments-pagination"
+    >
+      <button
+        type="button"
+        className={styles.paginationButton}
+        onClick={() => goTo(page - 1)}
+        disabled={!hasPrev}
+        data-testid="pagination-prev"
+        aria-label="Página anterior"
+      >
+        Anterior
+      </button>
+      <span className={styles.paginationLabel} data-testid="pagination-label">
+        Página {page} de {totalPages}
+      </span>
+      <button
+        type="button"
+        className={styles.paginationButton}
+        onClick={() => goTo(page + 1)}
+        disabled={!hasNext}
+        data-testid="pagination-next"
+        aria-label="Página siguiente"
+      >
+        Siguiente
+      </button>
+    </nav>
+  );
+}
 
 type AppointmentListCompound = {
   Root: typeof AppointmentListRoot;
@@ -299,7 +370,7 @@ type AppointmentListCompound = {
     ConfirmedBadge: typeof AppointmentListConfirmedBadge;
   };
   Empty: typeof AppointmentListEmpty;
-  Pagination: typeof AppointmentListPagination;
+  Pagination: typeof AppointmentListPaginationInternal;
   Skeleton: typeof AppointmentListSkeleton;
 };
 
@@ -317,6 +388,6 @@ export const AppointmentList: AppointmentListCompound = {
     ConfirmedBadge: AppointmentListConfirmedBadge,
   },
   Empty: AppointmentListEmpty,
-  Pagination: AppointmentListPagination,
+  Pagination: AppointmentListPaginationInternal,
   Skeleton: AppointmentListSkeleton,
 };
