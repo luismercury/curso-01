@@ -4,14 +4,17 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
 import { db } from "@/db";
 import { getWorkshopConfig } from "@/config/workshopConfig";
-import { getAppointmentById, listAppointments } from "@/services/appointmentService";
+import { getAppointmentById, listAppointmentsEnriched } from "@/services/appointmentService";
 import { parseConfirmedId } from "@/lib/validators/confirmedId";
+import { parseAppointmentsQuery } from "@/lib/validators/appointmentsQuery";
 import { isBannerEligible } from "@/domain/appointmentStateMachine";
+import { toEnrichedJson } from "@/db/mappers/turno";
+import type { EnrichedTurnoDTOJson, TurnoDTOJson } from "@/lib/api/appointments";
 import type { TurnoDTO } from "@/db/mappers/turno";
-import type { TurnoDTOJson } from "@/lib/api/appointments";
 import type { AuthUser } from "@/lib/auth/requireAuth";
 
 import { BookingConfirmation } from "./_components/BookingConfirmation";
+import { AppointmentList } from "./_components/AppointmentList";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,22 +46,27 @@ export default async function AppointmentsPage({ searchParams }: Props) {
 
   const params = await searchParams;
   const confirmedId = parseConfirmedId(params.confirmed);
-  const page = Math.max(1, Number(params.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+  // REQ-04: `parseAppointmentsQuery` clamps `?page&limit` on parse
+  // (never throws) so the page never 500s on a tampered URL.
+  const { page, limit } = parseAppointmentsQuery(params);
   const config = await getWorkshopConfig(db);
 
-  const [confirmedTurno, list] = await Promise.all([
+  const [confirmedTurno, enrichedList] = await Promise.all([
     fetchConfirmed(confirmedId, config, authUser),
-    listAppointments({ db, config }, { page, limit }, authUser),
+    listAppointmentsEnriched({ db, config }, { page, limit }, authUser),
   ]);
 
+  // INV-08 + INV-06: serialize every `Date` to ISO 8601 so RSC → client
+  // crosses a primitive-only boundary. `toEnrichedJson` is the single
+  // source of truth (it also re-asserts the snake→camel mapping).
+  const enrichedJson: EnrichedTurnoDTOJson[] = enrichedList.data.map(toEnrichedJson);
   const turnoJson: TurnoDTOJson | null =
     confirmedTurno !== null && isBannerEligible(confirmedTurno.status) ? toJson(confirmedTurno) : null;
 
   return (
     <section aria-labelledby="appointments-heading">
-      <h1 id="appointments-heading">My appointments</h1>
-      <p>{turnoJson ? "Booking confirmed" : `${list.pagination.total} upcoming`}</p>
+      <h1 id="appointments-heading">Próximos turnos</h1>
+      <p>{turnoJson ? "Reserva confirmada" : `${enrichedList.pagination.total} turnos próximos`}</p>
 
       {turnoJson ? (
         <Suspense fallback={null}>
@@ -70,15 +78,20 @@ export default async function AppointmentsPage({ searchParams }: Props) {
         </Suspense>
       ) : null}
 
-      {list.data.length === 0 ? (
-        <p data-testid="appointments-empty">No upcoming appointments.</p>
-      ) : (
-        <ol data-testid="appointments-list">
-          {list.data.map((t) => (
-            <li key={t.id}><span>{t.serviceId}</span><span>{t.startDateTime.toISOString()}</span></li>
-          ))}
-        </ol>
-      )}
+      <AppointmentList.Root timezone={config.timezone} pagination={enrichedList.pagination}>
+        {enrichedJson.length === 0 ? (
+          <AppointmentList.Empty />
+        ) : (
+          <>
+            <ol data-testid="appointments-list" role="list">
+              {enrichedJson.map((a) => (
+                <AppointmentList.Card key={a.id} appointment={a} />
+              ))}
+            </ol>
+            <AppointmentList.Pagination />
+          </>
+        )}
+      </AppointmentList.Root>
     </section>
   );
 }

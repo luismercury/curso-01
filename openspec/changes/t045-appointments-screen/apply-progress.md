@@ -134,3 +134,90 @@ trimmed, no comments/JSDoc were compressed.
 
 - Engram: `sdd/t045-appointments-screen/apply-progress` (obs #498)
 - Filesystem: `openspec/changes/t045-appointments-screen/apply-progress.md` (this file)
+
+---
+
+## PR2 — forced 4-way feature-branch-chain (PR2d: page.tsx RSC integration)
+
+**PR2 stacks on master @14f0c36 as a forced 4-way chain**
+(`pr2a` → `pr2b` → `pr2c` → `pr2d`) under the
+`feature/t045-appointments-screen` tracker. Maintainer overrode the
+splitter's `size:exception` with "Forzar split en 4 PRs con tracker"
+— accepting the cohesion cost to keep every PR reviewable under the
+400-line budget.
+
+### Chain topology
+
+```
+master @14f0c36
+ └── feature/t045-appointments-screen  (tracker, no-merge PR)
+     ├── feature/t045-appointments-screen-pr2a  →  Root + Empty + Skeleton
+     │   └── feature/t045-appointments-screen-pr2b  →  Card + Badge
+     │       └── feature/t045-appointments-screen-pr2c  →  Pagination
+     │           └── feature/t045-appointments-screen-pr2d  →  page.tsx (THIS)
+     │               └── (final) tracker merges to master
+```
+
+### Per-PR breakdown
+
+| PR | Branch | Lines (vs parent) | What ships |
+|----|--------|-------------------|------------|
+| PR2a | `pr2a` | +339/-0 | Root + Empty + Skeleton + tests + skeleton CSS |
+| PR2b | `pr2b` | +380/-14 | Card + Badge.{Pending,Confirmed} + tests + card/badge CSS |
+| PR2c | `pr2c` | +205/-8 | Pagination + tests + pagination CSS |
+| PR2d | `pr2d` | +350/-143 | page.tsx RSC + page.test.tsx extension + this mirror |
+
+**Total: 6 files, +1274/-165 across the 4-PR chain.**
+
+### Forced fragmentation cost
+
+The compound is partial between merges:
+- After PR2a: Card / Badge / Pagination are `null` no-op stubs.
+  Card-context-guard test deferred to PR2b since the PR2a stub
+  returns `null` without calling `useAppointment`.
+- After PR2b: Pagination still a stub. Badge variant assertions enabled.
+- After PR2c: full compound live. All 20 unit tests pass.
+- After PR2d: page.tsx RSC integration + 12 page-level assertions.
+
+No comments were trimmed, no JSDoc compressed, no tests dropped —
+the cohesion cost was absorbed by the explicit stub-vs-implementation
+split across the chain. See Engram topic
+`sdd/t045-appointments-screen/pr2-forced-4-way-chain` for the full
+verdict.
+
+### PR2d Files (this commit)
+
+| File | Action | Lines | Purpose |
+|------|--------|-------|---------|
+| `src/app/(customer)/appointments/page.tsx` | modify | +31/-18 | RSC integration: `listAppointmentsEnriched` + `parseAppointmentsQuery` + `AppointmentList.Root` |
+| `src/app/(customer)/appointments/page.test.tsx` | modify | +185/-9 | 12 RSC assertions + 8 preserved T-044 banner |
+| `openspec/changes/t045-appointments-screen/apply-progress.md` | modify | this section | PR2d scope + invariants + verification |
+
+### PR2d verification
+
+| Gate | Result |
+|------|--------|
+| `tsc --noEmit` | 0 errors |
+| `vitest run AppointmentList.test.tsx` | 20/20 pass |
+| `vitest run page.test.tsx` | 20/20 pass (8 preserved + 12 PR2d RSC) |
+
+### PR2d invariant assertions
+
+- **INV-03** (auth ownership forwarding): `page.test.tsx` asserts the
+  third call to `listAppointmentsEnriched` forwards
+  `{ id: O, role: "CLIENTE" }`.
+- **INV-06** (UTC ISO serialization): `page.test.tsx` asserts
+  `2026-09-10T12:30:00.000Z` reaches the `AppointmentList.Root` props.
+- **INV-08** (no snake leak): `page.test.tsx` scans the page JSON tree
+  for the full SNAKE list and asserts `not.toContain(s)`.
+- **REQ-04** (URL clamp-on-parse): `page.test.tsx` asserts
+  `?page=0&limit=101`, `?page=abc&limit=-1` clamp to
+  `{ page: 1, limit: 20 }` before forwarding to the service layer.
+- **Composition pattern**: `vercel-composition-patterns`
+  (`architecture-avoid-boolean-props` + `patterns-explicit-variants`).
+
+## Mirror Locations (hybrid store)
+
+- Engram: `sdd/t045-appointments-screen/apply-progress` (obs #498) +
+  `sdd/t045-appointments-screen/pr2-forced-4-way-chain` (this run)
+- Filesystem: `openspec/changes/t045-appointments-screen/apply-progress.md` (this file)
